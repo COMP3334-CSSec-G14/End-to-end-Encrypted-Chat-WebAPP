@@ -1,0 +1,3 @@
+chat/db-data/*
+chat/webapp/sessions/*
+chat/webapp/__pycache__
