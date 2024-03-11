@@ -1,0 +1,4 @@
+mysql_host: 'db'  # Name of the MySQL service in Docker Compose
+mysql_user: 'chatuser'
+mysql_password: 'chatpassword'
+mysql_db: 'chatdb'

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- 
+This software is provided under the BSD License. Copyright (c) 2024 Xavier de Carné de Carnavalet.
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the original author is acknowledged. See JavaScript source for full license text.
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Application</title>
+    <!-- Bootstrap CSS for styling -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <!-- Custom CSS -->
+    <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
+</head>
+<body>
+<div class="container mt-4">
+    <h2>Chat Application <small> - (<a href="/logout">Logout</a>)</small></h2>
+    <div class="chat-box">
+        <!-- Chat messages container -->
+        <div id="messages" style="border:1px solid #ccc; height:300px; margin-bottom:20px; overflow-y:scroll; padding:10px;"></div>
+        <!-- User selection dropdown -->
+        <select id="userList" class="form-control mb-2">
+            <option value="-1" disabled selected><i>Choose a contact</i></option>
+            <!-- User options populated here -->
+        </select>
+        <!-- Message input -->
+        <textarea id="messageInput" class="form-control mb-2" placeholder="Type a message..."></textarea>
+        <div class="d-flex justify-content-between">
+            <button onclick="sendMessage()" class="btn btn-primary">Send</button>
+            <div>
+                <button onclick="refreshKeys()" class="btn btn-secondary btn-sm">Refresh Keys</button>
+                <button onclick="eraseChat()" class="btn btn-danger btn-sm">Erase Chat</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- jQuery for simplified JavaScript -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs" crossorigin="anonymous"></script>
+<script type="text/javascript">
+// Global variables
+let lastMessageId = 0;
+let peer_id = -1;
+const myID = {{ sender_id }};
+let userInfo = {};
+
+// Ctrl+Enter to send message
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('messageInput').addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+});
+
+// Send message function
+function sendMessage() {
+    if (peer_id == -1) return; // Exit if no peer selected
+    const message = document.getElementById('messageInput').value;
+    const payload = {
+        receiver_id: peer_id,
+        message_text: message,
+    };
+
+    fetch('/send_message', {
+        method: 'POST', // Specify the method
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    })
+    .then(response => {
+        if (!response.ok) {
+            // If the server response is not OK, throw an error
+            throw new Error('Network response was not ok');
+        }
+        return response.json(); // Parse JSON response from the server
+    })
+    .then(data => {
+        console.log('Message sent:', data); // Log success message
+        document.getElementById('messageInput').value = ''; // Clear the input after sending
+    })
+    .catch(error => {
+        console.error('Error sending message:', error); // Log any errors
+    });
+}
+
+// Refresh Keys function placeholder
+function refreshKeys() {
+    console.log('Refresh keys functionality will be implemented here.');
+    // Placeholder for refresh functionality
+}
+
+// Populate users function
+function populateUsers(users) {
+    const userListDropdown = document.getElementById("userList");
+    users.forEach(user => {
+        const option = new Option(user[1], user[0]); // username as text, user_id as value
+        userListDropdown.add(option);
+    });
+}
+
+// Fetch users from server
+$(document).ready(function() {
+    fetch('/users')
+        .then(response => response.json())
+        .then(data => {
+            data.users.forEach(user => {
+                userInfo[user[0]] = user[1]; // Map user_id to username
+            });
+            console.log(userInfo);
+            populateUsers(data.users);
+        })
+        .catch(error => console.error('Error fetching user info:', error));
+});
+
+// Handle user selection change
+document.getElementById('userList').addEventListener('change', event => {
+    peer_id = parseInt(event.target.value, 10); // Convert selected peer_id to integer
+    clearChatBox();
+    lastMessageId = 0;
+    fetchMessages(); // Fetch messages for the new selection
+});
+
+// Clear chat box
+function clearChatBox() {
+    document.getElementById('messages').innerHTML = '';
+}
+
+// Fetch messages from server
+function fetchMessages() {
+    if (peer_id === -1) return; // Exit if no peer selected
+    fetch(`/fetch_messages?last_message_id=${lastMessageId}&peer_id=${peer_id}`)
+        .then(response => response.json())
+        .then(data => {
+            data.messages.forEach(message => {
+                displayMessage(message);
+                lastMessageId = message.message_id;
+            });
+        })
+        .catch(error => console.error('Error fetching messages:', error));
+}
+
+// Display a single message
+function displayMessage(message) {
+    const messagesContainer = document.getElementById('messages');
+    const messageElement = document.createElement('div');
+
+    // Determine sender and receiver strings
+    const sender = message.sender_id == myID ? "me" : (userInfo[message.sender_id] || `User ${message.sender_id}`);
+    const receiver = message.receiver_id == myID ? "me" : (userInfo[message.receiver_id] || `User ${message.receiver_id}`);
+
+    messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
+    messagesContainer.appendChild(messageElement);
+}
+
+// Periodically fetch new messages every second
+setInterval(fetchMessages, 1000);
+
+// Erase Chat function using fetch API
+function eraseChat() {
+    if (peer_id === -1) return; // Exit if no peer selected
+    if (!confirm('Are you sure you want to erase the chat with '+userInfo[peer_id]+'?')) return; // Confirmation before erasing
+
+    fetch(`/erase_chat`, {
+        method: 'POST',  // A REST API should use POST if it leads to modifications
+        headers: {
+            'Content-Type': 'application/json', 
+        },
+        body: JSON.stringify({ peer_id: peer_id })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json(); // Assuming the server responds with JSON
+    })
+    .then(data => {
+        console.log('Chat erased:', data);
+        clearChatBox(); // Clear the chat display
+    })
+    .catch(error => {
+        console.error('Error erasing chat:', error);
+    });
+}
+
+</script>
+</body>
+</html>
