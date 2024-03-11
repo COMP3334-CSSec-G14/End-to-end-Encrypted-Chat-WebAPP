@@ -6,3 +6,7 @@ cryptography==42.0.5
 PyYAML==6.0.1
 Flask-SocketIO==5.3.6
 eventlet==0.35.2
+pyotp==2.9.0
+pypng==0.20220715.0
+PyQRCode==1.2.1
+typing_extensions==4.10.0

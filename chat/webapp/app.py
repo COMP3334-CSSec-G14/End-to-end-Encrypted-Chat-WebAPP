@@ -32,6 +32,32 @@ from flask_mysqldb import MySQL
 from flask_session import Session
 import yaml
 
+import pyotp
+import pyqrcode
+import io
+import base64
+
+def generate_otp_key_n_qr(username):
+    secretKey = pyotp.random_base32()
+    uri = pyotp.totp.TOTP(secretKey).provisioning_uri(name=username, issuer_name="E2EE Chat WebApp")
+    qrCodeC = pyqrcode.create(uri)
+    s = io.BytesIO()
+    qrCodeC.png(s,scale=6)
+    toptQrCodeEncoded = base64.b64encode(s.getvalue()).decode("ascii")
+    
+    return secretKey, toptQrCodeEncoded
+
+def verify_otp(secretKey, otp):
+    totp = pyotp.TOTP(secretKey)
+
+    if totp.verify(otp):
+        return True
+    else:
+        return False
+
+def passwordHashing(password):
+    return password
+
 app = Flask(__name__)
 
 # Configure secret key and Flask-Session
@@ -103,16 +129,81 @@ def login():
         userDetails = request.form
         username = userDetails['username']
         password = userDetails['password']
+        otp = userDetails['otp']
+
         cur = mysql.connection.cursor()
-        cur.execute("SELECT user_id FROM users WHERE username=%s AND password=%s", (username, password,))
+        cur.execute("SELECT user_id, mfa_secret FROM users WHERE username=%s AND password=%s AND mfa_enabled=TRUE", (username, password,))
         account = cur.fetchone()
         if account:
             session['username'] = username
             session['user_id'] = account[0]
+            if verify_otp(account[1], otp):
+                return redirect(url_for('index'))
+            else:
+                error = 'Invalid OTP'
             return redirect(url_for('index'))
         else:
             error = 'Invalid credentials'
     return render_template('login.html', error=error)
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    error = None
+    if request.method == 'POST':
+        userDetails = request.form
+        username = userDetails['username']
+        password = userDetails['password']
+        re_enter_password = userDetails['re-enter-password']
+
+        if (password != re_enter_password):
+            error = 'Passwords do not match'
+            return render_template('signup.html', error=error)
+
+        cur = mysql.connection.cursor()
+        hashedPassword = passwordHashing(password)
+
+        try:
+            secretKey, qrCodeImg = generate_otp_key_n_qr(username)
+            cur.execute("INSERT INTO users (username, password, mfa_secret) VALUES (%s, %s, %s)", (username, hashedPassword, secretKey,))
+            mysql.connection.commit()
+            session['username'] = username
+            session['qrCodeImg'] = qrCodeImg
+            session['secretKey'] = secretKey
+
+            return redirect(url_for('add_otp'))
+        
+        except Exception as e:
+            return render_template('signup.html', error=e)
+        
+        finally:
+            cur.close()
+
+    return render_template('signup.html', error=error)
+
+@app.route('/add_otp', methods=['GET', 'POST'])
+def add_otp():
+    error = None
+    username = session.get('username')
+    qrCodeImg = session.get('qrCodeImg')
+    secretKey = session.get('secretKey')
+
+    if request.method == 'POST':
+        cur = mysql.connection.cursor()
+
+        try:
+            otp = request.form['otp']
+            if verify_otp(secretKey, otp):
+                cur.execute("UPDATE users SET mfa_enabled=TRUE WHERE username=%s", (username,))
+                mysql.connection.commit()
+                return redirect(url_for('login'))
+            else:
+                error = 'Invalid OTP'
+        except Exception as e:
+            error = 'Error adding OTP'
+        finally:
+            cur.close()
+
+    return render_template('add_otp.html', username=username, qrCodeImg=qrCodeImg, secretKey=secretKey, error=error)
 
 @app.route('/send_message', methods=['POST'])
 def send_message():

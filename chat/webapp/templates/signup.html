@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
+    <title>Sign up</title>
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N" crossorigin="anonymous">
     <!-- External CSS -->
@@ -18,11 +18,11 @@
             {% endfor %}
           {% endif %}
         {% endwith %}
-        <h2 class="text-center">Login</h2>
+        <h2 class="text-center">Sign up</h2>
         {% if error %}
             <div class="alert alert-danger">{{ error }}</div>
         {% endif %}
-        <form action="/login" method="post">
+        <form action="/signup" method="post">
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" class="form-control" id="username" name="username" required>
@@ -32,16 +32,13 @@
                 <input type="password" class="form-control" id="password" name="password" required>
             </div>
             <div class="form-group">
-                <label for="otp">OTP (Open your Authenticator App)</label>
-                <input type="numeric" class="form-control" id="otp" name="otp" required>
+                <label for="re-enter-password">Re-enter Password</label>
+                <input type="password" class="form-control" id="re-enter-password" name="re-enter-password" required>
             </div>
             <div class="text-center">
-                <button type="submit" class="btn btn-primary">Login</button>
+                <button type="submit" class="btn btn-primary">Sign up</button>
             </div>
         </form>
-
-        <div class="text-center">
-            <p>Don't have an account? <a href="/signup">Sign up</a></p>
     </div>
 </body>
 </html>
