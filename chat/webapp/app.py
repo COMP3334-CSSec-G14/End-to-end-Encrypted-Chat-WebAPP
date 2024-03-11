@@ -36,6 +36,7 @@ import pyotp
 import pyqrcode
 import io
 import base64
+import bcrypt
 
 def generate_otp_key_n_qr(username):
     secretKey = pyotp.random_base32()
@@ -56,7 +57,7 @@ def verify_otp(secretKey, otp):
         return False
 
 def passwordHashing(password):
-    return password
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 app = Flask(__name__)
 
@@ -132,16 +133,19 @@ def login():
         otp = userDetails['otp']
 
         cur = mysql.connection.cursor()
-        cur.execute("SELECT user_id, mfa_secret FROM users WHERE username=%s AND password=%s AND mfa_enabled=TRUE", (username, password,))
+        cur.execute("SELECT user_id, password, mfa_secret FROM users WHERE username=%s AND mfa_enabled=TRUE", (username,))
         account = cur.fetchone()
         if account:
             session['username'] = username
             session['user_id'] = account[0]
-            if verify_otp(account[1], otp):
+            hashed = account[1]
+
+            if (bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8')) and verify_otp(account[2], otp)):
                 return redirect(url_for('index'))
             else:
-                error = 'Invalid OTP'
+                error = 'Invalid OTP or password'
             return redirect(url_for('index'))
+        
         else:
             error = 'Invalid credentials'
     return render_template('login.html', error=error)
