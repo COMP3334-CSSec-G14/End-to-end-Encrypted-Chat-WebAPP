@@ -109,7 +109,7 @@ def fetch_messages():
     peer_id = request.args.get('peer_id', type=int)
     
     cur = mysql.connection.cursor()
-    query = """SELECT message_id,sender_id,receiver_id,message_text FROM messages 
+    query = """SELECT message_id,sender_id,receiver_id,message_text,iv FROM messages 
                WHERE message_id > %s AND 
                ((sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s))
                ORDER BY message_id ASC"""
@@ -220,15 +220,26 @@ def send_message():
     sender_id = session['user_id']
     receiver_id = request.json['receiver_id']
     message_text = request.json['message_text']
+    iv = request.json['iv']
 
     # Assuming you have a function to save messages
-    save_message(sender_id, receiver_id, message_text)
+    save_message(sender_id, receiver_id, message_text, iv)
     
     return jsonify({'status': 'success', 'message': 'Message sent'}), 200
 
-def save_message(sender, receiver, message):
+def save_message(sender, receiver, message, iv):
     cur = mysql.connection.cursor()
-    cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, %s)", (sender, receiver, message,))
+
+    sender_public_key_id = get_public_key_id(sender)
+    receiver_public_key_id = get_public_key_id(receiver)
+
+    if not sender_public_key_id or not receiver_public_key_id:
+        return jsonify({'status': 'failure', 'message': 'Public key exchange not found'}), 400
+    
+    cur.execute("""
+        INSERT INTO messages (sender_id, receiver_id, message_text, iv, sender_public_key_id, receiver_public_key_id) 
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """, (sender, receiver, message, iv, sender_public_key_id, receiver_public_key_id))
     mysql.connection.commit()
     cur.close()
 
@@ -254,6 +265,74 @@ def logout():
     session.clear()
     flash('You have been successfully logged out.', 'info')  # Flash a logout success message
     return redirect(url_for('index'))
+
+@app.route('/send_public_key', methods=['POST'])
+def send_public_key():
+    if 'user_id' not in session:
+        abort(403)
+
+    user_id = session['user_id']
+    public_key = request.json.get('public_key')
+    
+    if not public_key:
+        return jsonify({'status': 'failure', 'message': 'No public key provided'}), 400
+
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute("SELECT COUNT(*) FROM public_keys_exchange WHERE user_id = %s", (user_id,))
+        exists = cur.fetchone()[0] > 0
+
+        if exists:
+            cur.execute("UPDATE public_keys_exchange SET public_key = %s WHERE user_id = %s", (public_key, user_id))
+        else:
+            cur.execute("INSERT INTO public_keys_exchange (user_id, public_key) VALUES (%s, %s)", (user_id, public_key))
+        
+        mysql.connection.commit()
+        return jsonify({'status': 'success', 'message': 'Public key uploaded successfully'}), 200
+    except Exception as e:
+        return jsonify({'status': 'failure', 'message': 'Failed to upload public key: ' + str(e)}), 500
+    finally:
+        cur.close()
+
+@app.route('/receive_public_key/<int:user_id>', methods=['GET'])
+def receive_public_key(user_id):
+    if 'user_id' not in session:
+        abort(403)
+
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute("SELECT public_key FROM public_keys_exchange WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        
+        if row:
+            return jsonify({'status': 'success', 'public_key': row[0]}), 200
+        else:
+            return jsonify({'status': 'failure', 'message': 'Public key not found'}), 404
+    except Exception as e:
+        return jsonify({'status': 'failure', 'message': 'Failed to fetch public key'}), 500
+    finally:
+        cur.close()
+
+
+def get_public_key_id(user_id):
+    cur = mysql.connection.cursor()
+    try:
+        cur.execute("""SELECT public_key_id FROM public_keys_exchange 
+                       WHERE user_id = %s 
+                       ORDER BY created_at DESC 
+                       LIMIT 1""", (user_id,))
+        result = cur.fetchone()
+        
+        if result:
+            return result[0]
+        else:
+            return None
+    except Exception as e:
+        print(f"Error getting public_key_id: {e}")
+        return None
+    finally:
+        cur.close()
+
 
 if __name__ == '__main__':
     app.run(debug=True)

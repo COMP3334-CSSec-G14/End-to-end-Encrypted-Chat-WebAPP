@@ -15,17 +15,31 @@ CREATE TABLE users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE public_keys_exchange (
+    public_key_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    public_key TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
 -- Create 'messages' table
 CREATE TABLE messages (
     message_id INT AUTO_INCREMENT PRIMARY KEY,
     sender_id INT NOT NULL,
     receiver_id INT NOT NULL,
     message_text TEXT NOT NULL,
+    iv TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    sender_public_key_id INT,
+    receiver_public_key_id INT,
     FOREIGN KEY (sender_id) REFERENCES users(user_id),
-    FOREIGN KEY (receiver_id) REFERENCES users(user_id)
+    FOREIGN KEY (receiver_id) REFERENCES users(user_id),
+    FOREIGN KEY (sender_public_key_id) REFERENCES public_keys_exchange(public_key_id),
+    FOREIGN KEY (receiver_public_key_id) REFERENCES public_keys_exchange(public_key_id)
 );
 
+
 -- Optionally, insert some initial data for testing
-INSERT INTO users (username, password) VALUES ('Alice', 'password123'); -- Use hashed passwords in production
-INSERT INTO users (username, password) VALUES ('Bob', 'password456'); -- Use hashed passwords in production
+-- INSERT INTO users (username, password) VALUES ('Alice', 'password123'); -- Use hashed passwords in production
+-- INSERT INTO users (username, password) VALUES ('Bob', 'password456'); -- Use hashed passwords in production

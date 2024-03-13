@@ -55,17 +55,205 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// Global variables for storing cryptographic keys
+let encryptionKey, decryptionKey;
+
+async function setupCrypto() {
+    const { privateKey, publicKey } = await generateECDHKey();
+}
+
+window.onload = setupCrypto;
+
+// Generate ECDH key pair and public key
+async function generateECDHKey() {
+    const keyPair = await window.crypto.subtle.generateKey(
+        {
+            name: "ECDH",
+            namedCurve: "P-384"
+        },
+        true,
+        ["deriveKey"]
+    );
+
+    const publicKey = await window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    await saveKeyToLocalStorage(keyPair.privateKey, "privateKey");
+    sendPublicKeyToServer(publicKey);
+
+    return { keyPair, publicKey };
+}
+
+// Function to send the public key to the server
+async function sendPublicKeyToServer(publicKey) {
+    const publicKeyString = JSON.stringify(publicKey);
+    fetch('/send_public_key', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({public_key: publicKeyString}),
+    })
+    .then(response => response.json())
+    .then(data => console.log(data))
+    .catch(error => console.error('Error sending public key:', error));
+}
+
+// Function to fetch the peer's public key from the server
+async function fetchPeerPublicKey(peerId) {
+    const response = await fetch(`/receive_public_key/${peerId}`);
+    const data = await response.json();
+
+    if (response.ok) {
+        return data.public_key;
+    } else {
+        console.error('Failed to fetch peer public key:', data.message);
+        return null;
+    }
+}
+
+// Handle user selection change
+document.getElementById('userList').addEventListener('change', async event => {
+    peer_id = parseInt(event.target.value, 10);
+    clearChatBox();
+    lastMessageId = 0;
+    const peerPublicKeyString = await fetchPeerPublicKey(peer_id);
+
+    if (peerPublicKeyString) {
+        const peerPublicKey = await window.crypto.subtle.importKey(
+            "jwk",
+            JSON.parse(peerPublicKeyString),
+            {
+                name: "ECDH",
+                namedCurve: "P-384"
+            },
+            true,
+            []
+        );
+        // console.log("peerPublicKeyString", peerPublicKeyString);
+        await deriveEncryptionKeys(peerPublicKey);
+    }
+    fetchMessages();
+});
+
+// Derive AES-GCM encryption & decryption keys from a peer public key
+async function deriveEncryptionKeys(peerPublicKey) {
+    const privateKey = await getKeyFromLocalStorage("privateKey");
+
+    if (!privateKey) {
+        console.error("Private key not found. Please generate key pair first.");
+        return;
+    }
+
+    encryptionKey = await window.crypto.subtle.deriveKey(
+        {
+            name: "ECDH",
+            public: peerPublicKey
+        },
+        privateKey,
+        {
+            name: "AES-GCM",
+            length: 256
+        },
+        true,
+        ["encrypt", "decrypt"]
+    );
+
+    await saveKeyToLocalStorage(encryptionKey, "encryptionKey");
+}
+
+async function saveKeyToLocalStorage(key, keyName) {
+    try {
+        const exportedKey = await window.crypto.subtle.exportKey("jwk", key);
+        const keyString = JSON.stringify(exportedKey);
+        localStorage.setItem(keyName, keyString);
+    } catch (err) {
+        console.error("Error exporting key:", err);
+    }
+}
+
+function getKeyFromLocalStorage(keyName) {
+    const keyString = localStorage.getItem(keyName);
+    if (!keyString) return null;
+    console.log(keyString);
+
+    const keyObj = JSON.parse(keyString);
+    console.log(keyObj);
+
+    if (keyObj.kty === "EC") {
+        return window.crypto.subtle.importKey(
+            "jwk",
+            keyObj,
+            {
+                name: "ECDH",
+                namedCurve: "P-384"
+            },
+            true,
+            ["deriveKey"]
+        );
+    }
+    
+    return window.crypto.subtle.importKey(
+        "jwk",
+        keyObj,
+        keyObj.alg.startsWith("A") ? {name: "AES-GCM"} : {name: "HMAC", hash: "SHA-256"},
+        true,
+        keyObj.alg.startsWith("A") ? ["encrypt", "decrypt"] : ["sign", "verify"]
+    );
+}
+
+// Function to encrypt messages
+async function encryptMessage(plaintext) {
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const encryptionKey = await getKeyFromLocalStorage("encryptionKey");
+
+    const encryptedContent = await window.crypto.subtle.encrypt(
+        {
+            name: "AES-GCM",
+            iv: iv
+        },
+        encryptionKey,
+        new TextEncoder().encode(plaintext)
+    );
+
+    return { encryptedContent, iv };
+}
+
+// Function to decrypt messages
+async function decryptMessage(ciphertext, iv) {
+    const decryptionKey = await getKeyFromLocalStorage("encryptionKey");
+
+    const decryptedContent = await window.crypto.subtle.decrypt(
+        {
+            name: "AES-GCM",
+            iv: iv,
+        },
+        decryptionKey,
+        ciphertext
+    );
+
+    // console.log('Decrypted content:', new TextDecoder().decode(decryptedContent));
+    return new TextDecoder().decode(decryptedContent);
+}
+
 // Send message function
-function sendMessage() {
-    if (peer_id == -1) return; // Exit if no peer selected
+async function sendMessage() {
+    if (peer_id == -1) return;
     const message = document.getElementById('messageInput').value;
+    
+    // Encrypt the message before sending
+    const { encryptedContent, iv } = await encryptMessage(message);
+    
+    // Convert ArrayBuffer to base64
+    const encryptedMessage = btoa(String.fromCharCode.apply(null, new Uint8Array(encryptedContent)));
+    const base64IV = btoa(String.fromCharCode.apply(null, iv));
+
     const payload = {
         receiver_id: peer_id,
-        message_text: message,
+        message_text: encryptedMessage,
+        iv: base64IV
     };
 
     fetch('/send_message', {
-        method: 'POST', // Specify the method
+        method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
@@ -79,7 +267,6 @@ function sendMessage() {
         return response.json(); // Parse JSON response from the server
     })
     .then(data => {
-        console.log('Message sent:', data); // Log success message
         document.getElementById('messageInput').value = ''; // Clear the input after sending
     })
     .catch(error => {
@@ -90,7 +277,6 @@ function sendMessage() {
 // Refresh Keys function placeholder
 function refreshKeys() {
     console.log('Refresh keys functionality will be implemented here.');
-    // Placeholder for refresh functionality
 }
 
 // Populate users function
@@ -116,14 +302,6 @@ $(document).ready(function() {
         .catch(error => console.error('Error fetching user info:', error));
 });
 
-// Handle user selection change
-document.getElementById('userList').addEventListener('change', event => {
-    peer_id = parseInt(event.target.value, 10); // Convert selected peer_id to integer
-    clearChatBox();
-    lastMessageId = 0;
-    fetchMessages(); // Fetch messages for the new selection
-});
-
 // Clear chat box
 function clearChatBox() {
     document.getElementById('messages').innerHTML = '';
@@ -132,15 +310,47 @@ function clearChatBox() {
 // Fetch messages from server
 function fetchMessages() {
     if (peer_id === -1) return; // Exit if no peer selected
+
     fetch(`/fetch_messages?last_message_id=${lastMessageId}&peer_id=${peer_id}`)
         .then(response => response.json())
         .then(data => {
             data.messages.forEach(message => {
-                displayMessage(message);
+                // Check if message_text and iv are defined
+                if (typeof message.message_text === 'undefined' || typeof message.iv === 'undefined') {
+                    console.error('Undefined message text or iv');
+                    return; // Skip this message
+                }
+
+                try {
+                    const decodedIv = base64ToUint8Array(message.iv);
+                    const decodedMessageText = base64ToUint8Array(message.message_text);
+
+                    // console.log('Decoded IV:', decodedIv);
+                    // console.log('Decoded message:', decodedMessageText.buffer);
+
+                    decryptMessage(decodedMessageText.buffer, decodedIv)
+                        .then(decryptedMessage => {
+                            message.message_text = decryptedMessage;
+                            displayMessage(message);
+                        })
+                        .catch(error => console.error('Error decrypting message:', error));
+                } catch (error) {
+                    console.error('Error decoding base64:', error);
+                }
                 lastMessageId = message.message_id;
             });
         })
         .catch(error => console.error('Error fetching messages:', error));
+}
+
+function base64ToUint8Array(base64) {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    let bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
 }
 
 // Display a single message
