@@ -30,13 +30,10 @@ CREATE TABLE messages (
     receiver_id INT NOT NULL,
     message_text TEXT NOT NULL,
     iv TEXT NOT NULL,
+    hmac TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    sender_public_key_id INT,
-    receiver_public_key_id INT,
     FOREIGN KEY (sender_id) REFERENCES users(user_id),
-    FOREIGN KEY (receiver_id) REFERENCES users(user_id),
-    FOREIGN KEY (sender_public_key_id) REFERENCES public_keys_exchange(public_key_id),
-    FOREIGN KEY (receiver_public_key_id) REFERENCES public_keys_exchange(public_key_id)
+    FOREIGN KEY (receiver_id) REFERENCES users(user_id)
 );
 
 

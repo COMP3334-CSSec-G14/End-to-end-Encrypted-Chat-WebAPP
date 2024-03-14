@@ -221,25 +221,20 @@ def send_message():
     receiver_id = request.json['receiver_id']
     message_text = request.json['message_text']
     iv = request.json['iv']
+    hmac = request.json['hmac']
 
     # Assuming you have a function to save messages
-    save_message(sender_id, receiver_id, message_text, iv)
+    save_message(sender_id, receiver_id, message_text, iv, hmac)
     
     return jsonify({'status': 'success', 'message': 'Message sent'}), 200
 
-def save_message(sender, receiver, message, iv):
+def save_message(sender, receiver, message, iv, hmac):
     cur = mysql.connection.cursor()
 
-    sender_public_key_id = get_public_key_id(sender)
-    receiver_public_key_id = get_public_key_id(receiver)
-
-    if not sender_public_key_id or not receiver_public_key_id:
-        return jsonify({'status': 'failure', 'message': 'Public key exchange not found'}), 400
-    
     cur.execute("""
-        INSERT INTO messages (sender_id, receiver_id, message_text, iv, sender_public_key_id, receiver_public_key_id) 
-        VALUES (%s, %s, %s, %s, %s, %s)
-        """, (sender, receiver, message, iv, sender_public_key_id, receiver_public_key_id))
+        INSERT INTO messages (sender_id, receiver_id, message_text, iv, hmac) 
+        VALUES (%s, %s, %s, %s, %s)
+        """, (sender, receiver, message, iv, hmac))
     mysql.connection.commit()
     cur.close()
 

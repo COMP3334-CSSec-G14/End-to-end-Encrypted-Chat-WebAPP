@@ -62,6 +62,7 @@ function logout() {
 
 // Global variables for storing cryptographic keys
 let encryptionKey, decryptionKey;
+let saltCounter = 1;
 
 async function setupCrypto() {
     const { privateKey, publicKey } = await generateECDHKey();
@@ -77,7 +78,7 @@ async function generateECDHKey() {
             namedCurve: "P-384"
         },
         true,
-        ["deriveKey"]
+        ["deriveKey", "deriveBits"]
     );
 
     const publicKey = await window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
@@ -85,6 +86,86 @@ async function generateECDHKey() {
     sendPublicKeyToServer(publicKey);
 
     return { keyPair, publicKey };
+}
+
+async function deriveHKDFKeys(peerPublicKey, peerid) {
+    const privateKey = await getKeyFromLocalStorage("privateKey");
+
+    if (!privateKey) {
+        console.error("Private key not found. Please generate key pair first.");
+        return;
+    }
+    
+    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+
+    saltCounter++;
+    const encryptionKeyInfo = `CHAT_KEY_TO_${peerid}`;
+    const encryptionKey = await deriveKeyWithHKDF(privateKey, peerPublicKey, salt, encryptionKeyInfo, ["encrypt", "decrypt"]);
+    console.log("encryptionKey", encryptionKey);
+
+    const macKeyInfo = `MAC_KEY_TO_${peerid}`;
+    const macKey = await deriveKeyForSigning(privateKey, peerPublicKey, salt, macKeyInfo, ["sign", "verify"]);
+    console.log("macKey", macKey);
+
+    saveKeyToLocalStorage(encryptionKey, "encryptionKey");
+    saveKeyToLocalStorage(macKey, "macKey");
+}
+
+async function deriveKeyWithHKDF(privateKey, peerPublicKey, salt, info, keyUsage) {
+    return await window.crypto.subtle.deriveKey(
+        {
+            name: "ECDH",
+            public: peerPublicKey,
+            hash: "SHA-256",
+            salt: salt,
+            info: new TextEncoder().encode(info)
+        },
+        privateKey,
+        {
+            name: "AES-GCM",
+            length: 256
+        },
+        true,
+        keyUsage
+    );
+}
+
+async function deriveKeyForSigning(privateKey, peerPublicKey, salt, info, keyUsage) {
+    const sharedSecret = await window.crypto.subtle.deriveBits(
+        {
+            name: "ECDH",
+            public: peerPublicKey
+        },
+        privateKey,
+        384
+    );
+
+    const sharedSecretUint8Array = new Uint8Array(sharedSecret);
+    
+    const hkdfKey = await window.crypto.subtle.importKey(
+        "raw",
+        sharedSecretUint8Array,
+        { name: "HKDF" },
+        false,
+        ["deriveKey"]
+    );
+
+    return await window.crypto.subtle.deriveKey(
+        {
+            name: "HKDF",
+            hash: "SHA-256",
+            salt: salt,
+            info: new TextEncoder().encode(info)
+        },
+        hkdfKey,
+        {
+            name: "HMAC",
+            hash: {name: "SHA-256"},
+            length: 256
+        },
+        true,
+        keyUsage
+    );
 }
 
 // Function to send the public key to the server
@@ -134,36 +215,10 @@ document.getElementById('userList').addEventListener('change', async event => {
             []
         );
         console.log("peerPublicKeyString", peerPublicKeyString);
-        await deriveEncryptionKeys(peerPublicKey);
+        await deriveHKDFKeys(peerPublicKey, peer_id);
     }
     fetchMessages();
 });
-
-// Derive AES-GCM encryption & decryption keys from a peer public key
-async function deriveEncryptionKeys(peerPublicKey) {
-    const privateKey = await getKeyFromLocalStorage("privateKey");
-
-    if (!privateKey) {
-        console.error("Private key not found. Please generate key pair first.");
-        return;
-    }
-
-    encryptionKey = await window.crypto.subtle.deriveKey(
-        {
-            name: "ECDH",
-            public: peerPublicKey
-        },
-        privateKey,
-        {
-            name: "AES-GCM",
-            length: 256
-        },
-        true,
-        ["encrypt", "decrypt"]
-    );
-
-    await saveKeyToLocalStorage(encryptionKey, "encryptionKey");
-}
 
 async function saveKeyToLocalStorage(key, keyName) {
     try {
@@ -178,7 +233,7 @@ async function saveKeyToLocalStorage(key, keyName) {
 function getKeyFromLocalStorage(keyName) {
     const keyString = localStorage.getItem(keyName);
     if (!keyString) return null;
-    console.log("getKeyFromLocalStorage (String): ",keyString);
+    console.log("getKeyFromLocalStorage (String): ", keyString);
 
     const keyObj = JSON.parse(keyString);
     console.log("getKeyFromLocalStorage (Object): ", keyObj);
@@ -192,23 +247,58 @@ function getKeyFromLocalStorage(keyName) {
                 namedCurve: "P-384"
             },
             true,
-            ["deriveKey"]
+            ["deriveKey", "deriveBits"]
         );
     }
-    
-    return window.crypto.subtle.importKey(
-        "jwk",
-        keyObj,
-        keyObj.alg.startsWith("A") ? {name: "AES-GCM"} : {name: "HMAC", hash: "SHA-256"},
-        true,
-        keyObj.alg.startsWith("A") ? ["encrypt", "decrypt"] : ["sign", "verify"]
-    );
+    if (keyObj.alg === "A256GCM") {
+        return window.crypto.subtle.importKey(
+            "jwk",
+            keyObj,
+            keyObj.alg.startsWith("A") ? {name: "AES-GCM"} : {name: "HMAC", hash: "SHA-256"},
+            true,
+            keyObj.alg.startsWith("A") ? ["encrypt", "decrypt"] : ["sign", "verify"]
+        );
+    }
+
+    if (keyObj.kty === "oct") {
+        const base64 = keyObj.k.replace(/-/g, '+').replace(/_/g, '/');
+        console.log("getKeyFromLocalStorage (base64): ", base64);
+        // Decode base64 to ArrayBuffer
+        const keyBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer;
+
+        console.log("getKeyFromLocalStorage (ArrayBuffer): ", keyBuffer);
+
+        return window.crypto.subtle.importKey(
+            "raw",
+            keyBuffer, // Use the ArrayBuffer here
+            {name: "HMAC", hash: {name: "SHA-256"}},
+            true,
+            ["sign", "verify"]
+        );
+    }
 }
+
 
 // Function to encrypt messages
 async function encryptMessage(plaintext) {
     const iv = window.crypto.getRandomValues(new Uint8Array(12));
     const encryptionKey = await getKeyFromLocalStorage("encryptionKey");
+    const macKey = await getKeyFromLocalStorage("macKey");
+
+    console.log('mackey:', macKey)
+
+    const encoder = new TextEncoder();
+    const plaintextBuffer = encoder.encode(plaintext);
+
+    const hmacMsgSignature = await window.crypto.subtle.sign(
+        "HMAC",
+        macKey,
+        plaintextBuffer
+    );
+
+    console.log('HMAC signature:', hmacMsgSignature)
+
+    const hmacHashUint8Array = new Uint8Array(hmacMsgSignature);
 
     const encryptedContent = await window.crypto.subtle.encrypt(
         {
@@ -219,7 +309,7 @@ async function encryptMessage(plaintext) {
         new TextEncoder().encode(plaintext)
     );
 
-    return { encryptedContent, iv };
+    return { encryptedContent, iv, hmacHashUint8Array };
 }
 
 // Function to decrypt messages
@@ -245,16 +335,20 @@ async function sendMessage() {
     const message = document.getElementById('messageInput').value;
     
     // Encrypt the message before sending
-    const { encryptedContent, iv } = await encryptMessage(message);
+    const { encryptedContent, iv, hmacHashUint8Array } = await encryptMessage(message);
     
     // Convert ArrayBuffer to base64
     const encryptedMessage = btoa(String.fromCharCode.apply(null, new Uint8Array(encryptedContent)));
     const base64IV = btoa(String.fromCharCode.apply(null, iv));
+    const base64HMAC = btoa(String.fromCharCode.apply(null, hmacHashUint8Array));
+
+    localStorage.setItem('lastBase64IV', base64IV);
 
     const payload = {
         receiver_id: peer_id,
         message_text: encryptedMessage,
-        iv: base64IV
+        iv: base64IV,
+        hmac: base64HMAC,
     };
 
     fetch('/send_message', {
@@ -330,8 +424,26 @@ function fetchMessages() {
                     const decodedIv = base64ToUint8Array(message.iv);
                     const decodedMessageText = base64ToUint8Array(message.message_text);
 
+                    console.log(message.hmac);
+                    // const decodedHMAC = base64ToUint8Array(message.hmac);
+
                     console.log('Decoded IV:', decodedIv);
                     console.log('Decoded message:', decodedMessageText.buffer);
+                    // console.log('Decoded HMAC:', decodedHMAC);
+                    
+                    // if (lastMessageId === 0) {
+                    //     localStorage.setItem('lastReceivedIV', message.iv);
+                    // } else {
+                    //     const lastReceivedIV = localStorage.getItem('lastReceivedIV');
+                    //     const lastReceivedIVUint8Array = base64ToUint8Array(lastReceivedIV);
+
+                    //     if (byteArrayToBigInt(lastReceivedIVUint8Array) >= byteArrayToBigInt(decodedIv)) {
+                    //         console.error('error');
+                    //         return;
+                    //     }
+
+                    //     localStorage.setItem('lastReceivedIV', message.iv);
+                    // }
 
                     decryptMessage(decodedMessageText.buffer, decodedIv)
                         .then(decryptedMessage => {
@@ -339,6 +451,7 @@ function fetchMessages() {
                             displayMessage(message);
                         })
                         .catch(error => console.error('Error decrypting message:', error));
+
                 } catch (error) {
                     console.error('Error decoding base64:', error);
                 }
@@ -346,6 +459,14 @@ function fetchMessages() {
             });
         })
         .catch(error => console.error('Error fetching messages:', error));
+}
+
+function byteArrayToBigInt(byteArray) {
+    let value = BigInt(0);
+    for (let i = 0; i < byteArray.length; i++) {
+        value = (value * BigInt(256)) + BigInt(byteArray[i]);
+    }
+    return value;
 }
 
 function base64ToUint8Array(base64) {
