@@ -8,6 +8,8 @@ services:
       - 8443:8443
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./server.crt:/etc/nginx/server.crt
+      - ./server.key:/etc/nginx/server.key
     depends_on:
       - webapp
 

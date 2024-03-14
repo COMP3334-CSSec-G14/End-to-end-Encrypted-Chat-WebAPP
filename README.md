@@ -13,3 +13,11 @@ An End-to-end Encrypted Chat Web Application
   - MySQL
 - Web Server
   - Nginx
+
+## Key & Cert Generate
+
+```bash
+openssl ecparam -genkey -name secp384r1 -out server.key
+openssl req -new -key server.key -out server.csr -config csr.conf
+openssl x509 -req -in server.csr -CA cacert.crt -CAkey cakey.pem -CAcreateserial -out server.crt -days 90 -sha384 -extfile v3.ext
+```
