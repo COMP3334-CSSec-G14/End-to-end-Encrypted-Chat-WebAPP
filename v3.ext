@@ -1,0 +1,5 @@
+authorityKeyIdentifier=keyid,issuer:always
+subjectKeyIdentifier=hash
+keyUsage=critical,digitalSignature
+extendedKeyUsage=serverAuth
+basicConstraints=CA:FALSE
