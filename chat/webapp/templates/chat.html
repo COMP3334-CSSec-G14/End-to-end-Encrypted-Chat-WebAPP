@@ -16,7 +16,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
 </head>
 <body>
 <div class="container mt-4">
-    <h2>Chat Application <small> - (<a href="/logout">Logout</a>)</small></h2>
+    <h2>Chat Application <small> - (<button onclick="logout()">Logout</button>)</small></h2>
     <div class="chat-box">
         <!-- Chat messages container -->
         <div id="messages" style="border:1px solid #ccc; height:300px; margin-bottom:20px; overflow-y:scroll; padding:10px;"></div>
@@ -54,6 +54,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+function logout() {
+    localStorage.clear();
+    window.location.href = '/logout';
+}
 
 // Global variables for storing cryptographic keys
 let encryptionKey, decryptionKey;
@@ -128,7 +133,7 @@ document.getElementById('userList').addEventListener('change', async event => {
             true,
             []
         );
-        // console.log("peerPublicKeyString", peerPublicKeyString);
+        console.log("peerPublicKeyString", peerPublicKeyString);
         await deriveEncryptionKeys(peerPublicKey);
     }
     fetchMessages();
@@ -173,10 +178,10 @@ async function saveKeyToLocalStorage(key, keyName) {
 function getKeyFromLocalStorage(keyName) {
     const keyString = localStorage.getItem(keyName);
     if (!keyString) return null;
-    console.log(keyString);
+    console.log("getKeyFromLocalStorage (String): ",keyString);
 
     const keyObj = JSON.parse(keyString);
-    console.log(keyObj);
+    console.log("getKeyFromLocalStorage (Object): ", keyObj);
 
     if (keyObj.kty === "EC") {
         return window.crypto.subtle.importKey(
@@ -230,7 +235,7 @@ async function decryptMessage(ciphertext, iv) {
         ciphertext
     );
 
-    // console.log('Decrypted content:', new TextDecoder().decode(decryptedContent));
+    console.log('Decrypted content:', new TextDecoder().decode(decryptedContent));
     return new TextDecoder().decode(decryptedContent);
 }
 
@@ -325,8 +330,8 @@ function fetchMessages() {
                     const decodedIv = base64ToUint8Array(message.iv);
                     const decodedMessageText = base64ToUint8Array(message.message_text);
 
-                    // console.log('Decoded IV:', decodedIv);
-                    // console.log('Decoded message:', decodedMessageText.buffer);
+                    console.log('Decoded IV:', decodedIv);
+                    console.log('Decoded message:', decodedMessageText.buffer);
 
                     decryptMessage(decodedMessageText.buffer, decodedIv)
                         .then(decryptedMessage => {
