@@ -287,19 +287,14 @@ async function encryptMessage(plaintext) {
 
     console.log('mackey:', macKey)
 
-    const encoder = new TextEncoder();
-    const plaintextBuffer = encoder.encode(plaintext);
-
-    const hmacMsgSignature = await window.crypto.subtle.sign(
+    const hmacIVSignature = await window.crypto.subtle.sign(
         "HMAC",
         macKey,
-        plaintextBuffer
+        iv
     );
+    console.log('HMAC signature:', hmacIVSignature)
 
-    console.log('HMAC signature:', hmacMsgSignature)
-
-    const hmacHashUint8Array = new Uint8Array(hmacMsgSignature);
-
+    const hmacHashUint8Array = new Uint8Array(hmacIVSignature);
     const encryptedContent = await window.crypto.subtle.encrypt(
         {
             name: "AES-GCM",
@@ -376,6 +371,25 @@ async function sendMessage() {
 // Refresh Keys function placeholder
 function refreshKeys() {
     console.log('Refresh keys functionality will be implemented here.');
+    //     // await setupCrypto();
+    //     // await deriveEncryptionKeys(peerPublicKey);
+    //     // console.log('Keys refreshed');
+    //     const { privateKey, publicKey } = await generateECDHKey();
+    //     console.log('Keys refreshed');
+
+    //     lastIV = localStorage.getItem('lastBase64IV');
+    //     command = 'change';
+    //     currentMACKey = localStorage.getItem('macKey');
+
+    //     const changeKeyMessage = JSON.stringify({
+    //         iv: lastIV,
+    //         command: command,
+    //     });
+
+    //     const encryptedChangeKeyMessage = encryptMessage(changeKeyMessage, currentMACKey);
+
+
+    //     sendChangeKeyMessage(encryptedChangeKeyMessage);
 }
 
 // Populate users function
@@ -423,34 +437,27 @@ function fetchMessages() {
                 try {
                     const decodedIv = base64ToUint8Array(message.iv);
                     const decodedMessageText = base64ToUint8Array(message.message_text);
-
-                    console.log(message.hmac);
-                    // const decodedHMAC = base64ToUint8Array(message.hmac);
+                    const decodedHMAC = base64ToUint8Array(message.hmac);
 
                     console.log('Decoded IV:', decodedIv);
                     console.log('Decoded message:', decodedMessageText.buffer);
-                    // console.log('Decoded HMAC:', decodedHMAC);
-                    
-                    // if (lastMessageId === 0) {
-                    //     localStorage.setItem('lastReceivedIV', message.iv);
-                    // } else {
-                    //     const lastReceivedIV = localStorage.getItem('lastReceivedIV');
-                    //     const lastReceivedIVUint8Array = base64ToUint8Array(lastReceivedIV);
+                    console.log('Decoded HMAC:', decodedHMAC);
 
-                    //     if (byteArrayToBigInt(lastReceivedIVUint8Array) >= byteArrayToBigInt(decodedIv)) {
-                    //         console.error('error');
-                    //         return;
-                    //     }
+                    verifyHMAC(decodedIv, decodedHMAC)
+                        .then(isValid => {
+                            if (!isValid) {
+                                console.error('HMAC verification failed');
+                                return;
+                            }
 
-                    //     localStorage.setItem('lastReceivedIV', message.iv);
-                    // }
-
-                    decryptMessage(decodedMessageText.buffer, decodedIv)
-                        .then(decryptedMessage => {
-                            message.message_text = decryptedMessage;
-                            displayMessage(message);
+                            decryptMessage(decodedMessageText.buffer, decodedIv)
+                                .then(decryptedMessage => {
+                                    message.message_text = decryptedMessage;
+                                    displayMessage(message);
+                                })
+                                .catch(error => console.error('Error decrypting message:', error));
                         })
-                        .catch(error => console.error('Error decrypting message:', error));
+                        .catch(error => console.error('Error verifying HMAC:', error));
 
                 } catch (error) {
                     console.error('Error decoding base64:', error);
@@ -459,6 +466,30 @@ function fetchMessages() {
             });
         })
         .catch(error => console.error('Error fetching messages:', error));
+}
+
+async function verifyHMAC(iv, receivedHmac) {
+    const macKeyJwkString = localStorage.getItem('macKey');
+    const macKeyJwk = JSON.parse(macKeyJwkString);
+
+    const macKey = await window.crypto.subtle.importKey(
+        'jwk',
+        macKeyJwk,
+        {
+            name: 'HMAC',
+            hash: { name: 'SHA-256' }
+        },
+        false,
+        ['verify']
+    );
+
+    const isValid = await window.crypto.subtle.verify(
+        'HMAC',
+        macKey,
+        receivedHmac,
+        iv
+    );
+    return isValid;
 }
 
 function byteArrayToBigInt(byteArray) {
