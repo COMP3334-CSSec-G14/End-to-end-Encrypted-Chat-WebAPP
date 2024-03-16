@@ -63,9 +63,16 @@ function logout() {
 // Global variables for storing cryptographic keys
 let encryptionKey, decryptionKey;
 let saltCounter = 1;
+let fixedPortion = window.crypto.getRandomValues(new Uint8Array(4));
+let counter = 0;
 
 async function setupCrypto() {
     const { privateKey, publicKey } = await generateECDHKey();
+
+    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+    const saltString = btoa(String.fromCharCode.apply(null, salt));
+    saltCounter++;
+    await sendSaltToServer(saltString);
 }
 
 window.onload = setupCrypto;
@@ -95,20 +102,32 @@ async function deriveHKDFKeys(peerPublicKey, peerid) {
         console.error("Private key not found. Please generate key pair first.");
         return;
     }
-    
-    const salt = window.crypto.getRandomValues(new Uint8Array(16));
 
-    saltCounter++;
-    const encryptionKeyInfo = `CHAT_KEY_TO_${peerid}`;
-    const encryptionKey = await deriveKeyWithHKDF(privateKey, peerPublicKey, salt, encryptionKeyInfo, ["encrypt", "decrypt"]);
+    const peerSalt = await fetchPeerSalt(peerid);
+    const ownSalt = localStorage.getItem('salt');
+
+    const peerSaltUint8Array = base64ToUint8Array(peerSalt);
+    const ownSaltUint8Array = base64ToUint8Array(ownSalt);
+
+    // Generate encryption key
+    const encryptionKeyInfo = `CHAT_KEY`;
+    const encryptionKey = await deriveKeyWithHKDF(privateKey, peerPublicKey, ownSaltUint8Array, encryptionKeyInfo, ["encrypt", "decrypt"]);
     console.log("encryptionKey", encryptionKey);
 
-    const macKeyInfo = `MAC_KEY_TO_${peerid}`;
-    const macKey = await deriveKeyForSigning(privateKey, peerPublicKey, salt, macKeyInfo, ["sign", "verify"]);
-    console.log("macKey", macKey);
+    // Generate MAC key
+    //  - Own Mac Key
+    const ownMacKeyInfo = `MAC_KEY_${myID}_to_${peerid}`;
+    const ownMacKey = await deriveKeyForSigning(privateKey, peerPublicKey, ownSaltUint8Array, ownMacKeyInfo, ["sign", "verify"]);
+    console.log("ownMacKey", ownMacKey);
+
+    //  - Peer Mac Key
+    const peerMacKeyInfo = `MAC_KEY_${peerid}_to_${myID}`;
+    const peerMacKey = await deriveKeyForSigning(privateKey, peerPublicKey, peerSaltUint8Array, peerMacKeyInfo, ["sign", "verify"]);
+    console.log("peerMacKey", peerMacKey);
 
     saveKeyToLocalStorage(encryptionKey, "encryptionKey");
-    saveKeyToLocalStorage(macKey, "macKey");
+    saveKeyToLocalStorage(ownMacKey, "ownMacKey");
+    saveKeyToLocalStorage(peerMacKey, "peerMacKey");
 }
 
 async function deriveKeyWithHKDF(privateKey, peerPublicKey, salt, info, keyUsage) {
@@ -196,6 +215,36 @@ async function fetchPeerPublicKey(peerId) {
     }
 }
 
+// Function to send the salt to the server
+async function sendSaltToServer(saltString) {
+    localStorage.setItem('salt', saltString);
+    fetch('/send_salt', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({salt: saltString}),
+    })
+    .then(response => response.json())
+    .then(data => console.log(data))
+    .catch(error => console.error('Error sending salt:', error));
+}
+
+// Function to fetch the peer's salt from the server
+async function fetchPeerSalt(peerId) {
+    const response = await fetch(`/receive_salt/${peerId}`);
+    const data = await response.json();
+
+    if (response.ok) {
+        console.log("Peer salt:", data.salt)
+        localStorage.setItem('peerSalt', data.salt);
+        return data.salt;
+    } else {
+        console.error('Failed to fetch peer salt:', data.message);
+        return null;
+    }
+}
+
 // Handle user selection change
 document.getElementById('userList').addEventListener('change', async event => {
     peer_id = parseInt(event.target.value, 10);
@@ -278,12 +327,32 @@ function getKeyFromLocalStorage(keyName) {
     }
 }
 
+function generateCounterBasedIV() {
+  counter += 1;
+  if (counter >= Number.MAX_SAFE_INTEGER) {
+    throw new Error("Counter has reached its maximum safe value. Reset needed with caution.");
+  }
+
+  let counterBytes = new Uint8Array([
+    (counter >> 24) & 0xFF,
+    (counter >> 16) & 0xFF,
+    (counter >> 8) & 0xFF,
+    counter & 0xFF
+  ]);
+
+  let iv = new Uint8Array(12);
+  iv.set(fixedPortion, 0);
+  iv.set(counterBytes, 4);
+
+  return iv;
+}
 
 // Function to encrypt messages
 async function encryptMessage(plaintext) {
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    // const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const iv = generateCounterBasedIV();
     const encryptionKey = await getKeyFromLocalStorage("encryptionKey");
-    const macKey = await getKeyFromLocalStorage("macKey");
+    const macKey = await getKeyFromLocalStorage("ownMacKey");
 
     console.log('mackey:', macKey)
 
@@ -337,8 +406,6 @@ async function sendMessage() {
     const base64IV = btoa(String.fromCharCode.apply(null, iv));
     const base64HMAC = btoa(String.fromCharCode.apply(null, hmacHashUint8Array));
 
-    localStorage.setItem('lastBase64IV', base64IV);
-
     const payload = {
         receiver_id: peer_id,
         message_text: encryptedMessage,
@@ -369,28 +436,97 @@ async function sendMessage() {
 }
 
 // Refresh Keys function placeholder
-function refreshKeys() {
-    console.log('Refresh keys functionality will be implemented here.');
-    //     // await setupCrypto();
-    //     // await deriveEncryptionKeys(peerPublicKey);
-    //     // console.log('Keys refreshed');
-    //     const { privateKey, publicKey } = await generateECDHKey();
-    //     console.log('Keys refreshed');
+// function refreshKeys() {
+//     const newSalt = window.crypto.getRandomValues(new Uint8Array(16));
+//     const peerPublicKey = await fetchPeerPublicKey(peer_id);
+//     await deriveHKDFKeys(peerPublicKey, peer_id, newSalt);
 
-    //     lastIV = localStorage.getItem('lastBase64IV');
-    //     command = 'change';
-    //     currentMACKey = localStorage.getItem('macKey');
+//     const lastIV = localStorage.getItem('lastBase64IV');
+//     const command = 'change';
+//     const oldMacKey = await getKeyFromLocalStorage('macKey');
+//     const changeKeyMessage = JSON.stringify({ iv: lastIV, command: command });
 
-    //     const changeKeyMessage = JSON.stringify({
-    //         iv: lastIV,
-    //         command: command,
-    //     });
+//     const { encryptedContent, iv, hmacHashUint8Array } = await encryptAndSignMessage(changeKeyMessage, oldMacKey);
+//     const newMacKey = await getKeyFromLocalStorage('macKey');
 
-    //     const encryptedChangeKeyMessage = encryptMessage(changeKeyMessage, currentMACKey);
+//     const newHmacHashUint8Array = await window.crypto.subtle.sign(
+//         "HMAC",
+//         newMacKey,
+//         iv
+//     );
 
+//     sendKeyChangeMessage(encryptedContent, iv, hmacHashUint8Array, newHmacHashUint8Array);
+//     displayMessage({ message_text: "Keys changed", sender_id: myID, receiver_id: peer_id });
+// }
 
-    //     sendChangeKeyMessage(encryptedChangeKeyMessage);
-}
+// async function encryptAndSignMessage(message, macKey) {
+//     const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+//     const encryptionKey = await getKeyFromLocalStorage("encryptionKey");
+
+//     const encryptedContent = await window.crypto.subtle.encrypt(
+//         {
+//             name: "AES-GCM",
+//             iv: iv,
+//         },
+//         encryptionKey,
+//         new TextEncoder().encode(message)
+//     );
+
+//     const hmacSignature = await window.crypto.subtle.sign(
+//         "HMAC",
+//         macKey,
+//         iv
+//     );
+
+//     const encryptedMessageBase64 = arrayBufferToBase64(encryptedContent);
+//     const ivBase64 = arrayBufferToBase64(iv);
+//     const hmacSignatureBase64 = arrayBufferToBase64(hmacSignature);
+
+//     return {
+//         encryptedMessage: encryptedMessageBase64,
+//         iv: ivBase64,
+//         hmacSignature: hmacSignatureBase64
+//     };
+// }
+
+// function arrayBufferToBase64(buffer) {
+//     let binary = '';
+//     const bytes = new Uint8Array(buffer);
+//     const len = bytes.byteLength;
+//     for (let i = 0; i < len; i++) {
+//         binary += String.fromCharCode(bytes[i]);
+//     }
+//     return window.btoa(binary);
+// }
+
+// async function sendKeyChangeMessage(encryptedContent, iv, oldMacSignature, newMacSignature) {
+//     const payload = {
+//         encryptedContent: encryptedContent,
+//         iv: iv,
+//         oldMacSignature: oldMacSignature,
+//         newMacSignature: newMacSignature,
+//         command: "change",
+//         peer_id: peer_id
+//     };
+
+//     fetch('/send_key_change_message', {
+//         method: 'POST',
+//         headers: {
+//             'Content-Type': 'application/json',
+//         },
+//         body: JSON.stringify(payload),
+//     })
+//     .then(response => {
+//         if (!response.ok) {
+//             throw new Error('Failed to send key change message to the server');
+//         }
+//         console.log('Key change message sent successfully');
+//     })
+//     .catch(error => {
+//         console.error('Error sending key change message:', error);
+//     });
+// }
 
 // Populate users function
 function populateUsers(users) {
@@ -441,24 +577,35 @@ function fetchMessages() {
 
                     console.log('Decoded IV:', decodedIv);
                     console.log('Decoded message:', decodedMessageText.buffer);
+                    console.log('HMAC:', message.hmac);
                     console.log('Decoded HMAC:', decodedHMAC);
 
-                    verifyHMAC(decodedIv, decodedHMAC)
-                        .then(isValid => {
-                            if (!isValid) {
-                                console.error('HMAC verification failed');
-                                return;
-                            }
+                    if (message.sender_id !== myID) {
+                        
+                        verifyIV(decodedIv, decodedHMAC)
+                            .then(isValid => {
+                                if (!isValid) {
+                                    console.error('IV verification failed');
+                                    return;
+                                }
+                                localStorage.setItem('lastBase64IV', message.iv);
 
-                            decryptMessage(decodedMessageText.buffer, decodedIv)
-                                .then(decryptedMessage => {
-                                    message.message_text = decryptedMessage;
-                                    displayMessage(message);
-                                })
-                                .catch(error => console.error('Error decrypting message:', error));
-                        })
-                        .catch(error => console.error('Error verifying HMAC:', error));
-
+                                decryptMessage(decodedMessageText.buffer, decodedIv)
+                                    .then(decryptedMessage => {
+                                        message.message_text = decryptedMessage;
+                                        displayMessage(message);
+                                    })
+                                    .catch(error => console.error('Error decrypting message:', error));
+                            })
+                            .catch(error => console.error('Error verifying HMAC:', error));
+                    } else {
+                        decryptMessage(decodedMessageText.buffer, decodedIv)
+                            .then(decryptedMessage => {
+                                message.message_text = decryptedMessage;
+                                displayMessage(message);
+                            })
+                            .catch(error => console.error('Error decrypting message:', error));
+                    }
                 } catch (error) {
                     console.error('Error decoding base64:', error);
                 }
@@ -468,8 +615,24 @@ function fetchMessages() {
         .catch(error => console.error('Error fetching messages:', error));
 }
 
-async function verifyHMAC(iv, receivedHmac) {
-    const macKeyJwkString = localStorage.getItem('macKey');
+async function verifyIV(iv, receivedHmac) {
+    // if lastBase64IV is not set, then this is the first message
+    if (localStorage.getItem('lastBase64IV')) {
+        console.log('lastBase64IV:', localStorage.getItem('lastBase64IV'));
+
+        // As a recipient, verify that IVi > IVi-1 to prevent replay attacks
+        const lastBase64IV = localStorage.getItem('lastBase64IV');
+        const lastIV = base64ToUint8Array(lastBase64IV);
+        const ivValue = byteArrayToBigInt(iv);
+        const lastIVValue = byteArrayToBigInt(lastIV);
+
+        if (ivValue <= lastIVValue) {
+            console.error('IV value is not greater than the last IV');
+            return false;
+        }
+    }
+
+    const macKeyJwkString = localStorage.getItem('peerMacKey');
     const macKeyJwk = JSON.parse(macKeyJwkString);
 
     const macKey = await window.crypto.subtle.importKey(
@@ -480,16 +643,28 @@ async function verifyHMAC(iv, receivedHmac) {
             hash: { name: 'SHA-256' }
         },
         false,
-        ['verify']
+        ['sign', 'verify']
     );
 
-    const isValid = await window.crypto.subtle.verify(
-        'HMAC',
+    const hmac = await window.crypto.subtle.sign(
+        { name: "HMAC" },
         macKey,
-        receivedHmac,
         iv
     );
-    return isValid;
+
+    let receivedHmacBuffer;
+    if (receivedHmac instanceof ArrayBuffer) {
+        receivedHmacBuffer = receivedHmac;
+    } else {
+        receivedHmacBuffer = new Uint8Array(receivedHmac).buffer;
+    }
+
+    return window.crypto.subtle.verify(
+        "HMAC",
+        macKey,
+        receivedHmacBuffer,
+        iv
+    );
 }
 
 function byteArrayToBigInt(byteArray) {
