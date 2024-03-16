@@ -308,23 +308,50 @@ def receive_public_key(user_id):
     finally:
         cur.close()
 
+@app.route('/send_salt', methods=['POST'])
+def send_salt():
+    if 'user_id' not in session:
+        abort(403)
 
-def get_public_key_id(user_id):
-    cur = mysql.connection.cursor()
+    user_id = session['user_id']
+    salt = request.json.get('salt')
+    
+    if not salt:
+        return jsonify({'status': 'failure', 'message': 'No salt provided'}), 400
+
     try:
-        cur.execute("""SELECT public_key_id FROM public_keys_exchange 
-                       WHERE user_id = %s 
-                       ORDER BY created_at DESC 
-                       LIMIT 1""", (user_id,))
-        result = cur.fetchone()
-        
-        if result:
-            return result[0]
+        cur = mysql.connection.cursor()
+        cur.execute("SELECT COUNT(*) FROM salt_exchange WHERE user_id = %s", (user_id,))
+        exists = cur.fetchone()[0] > 0
+
+        if exists:
+            cur.execute("UPDATE salt_exchange SET salt = %s WHERE user_id = %s", (salt, user_id))
         else:
-            return None
+            cur.execute("INSERT INTO salt_exchange (user_id, salt) VALUES (%s, %s)", (user_id, salt))
+        
+        mysql.connection.commit()
+        return jsonify({'status': 'success', 'message': 'salt uploaded successfully'}), 200
     except Exception as e:
-        print(f"Error getting public_key_id: {e}")
-        return None
+        return jsonify({'status': 'failure', 'message': 'Failed to upload salt: ' + str(e)}), 500
+    finally:
+        cur.close()
+
+@app.route('/receive_salt/<int:user_id>', methods=['GET'])
+def receive_salt(user_id):
+    if 'user_id' not in session:
+        abort(403)
+
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute("SELECT salt FROM salt_exchange WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        
+        if row:
+            return jsonify({'status': 'success', 'salt': row[0]}), 200
+        else:
+            return jsonify({'status': 'failure', 'message': 'salt not found'}), 404
+    except Exception as e:
+        return jsonify({'status': 'failure', 'message': 'Failed to fetch salt'}), 500
     finally:
         cur.close()
 
