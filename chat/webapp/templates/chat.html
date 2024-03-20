@@ -306,15 +306,44 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         async function saveKeyToLocalStorage(key, keyName) {
             try {
                 const exportedKey = await window.crypto.subtle.exportKey("jwk", key);
-                const keyString = JSON.stringify(exportedKey);
-                localStorage.setItem(keyName, keyString);
+                let keyString = JSON.stringify(exportedKey);
+                if (keyName === "peerEncryptionKey" ||
+                    keyName === "peerMacKey" ||
+                    keyName === "ownEncryptionKey" ||
+                    keyName === "ownMacKey"
+                ) {
+                    keyString = btoa(keyString);
+
+                    let array = [];
+                    if (localStorage.getItem(keyName)) {
+                        array = JSON.parse(localStorage.getItem(keyName));
+                        array.push(keyString);
+                        localStorage.setItem(keyName, JSON.stringify(array));
+                    } else {
+                        array.push(keyString);
+                        localStorage.setItem(keyName, JSON.stringify(array));
+                    }
+                } else {
+                    localStorage.setItem(keyName, keyString);
+                }
             } catch (err) {
                 console.error("Error exporting key:", err);
             }
         }
 
         function getKeyFromLocalStorage(keyName) {
-            const keyString = localStorage.getItem(keyName);
+            let keyString = localStorage.getItem(keyName);
+            if (keyName === "peerEncryptionKey" ||
+                keyName === "peerMacKey" ||
+                keyName === "ownEncryptionKey" ||
+                keyName === "ownMacKey"
+            ) {
+                let array = localStorage.getItem(keyName);
+                array = JSON.parse(array)
+                keyString = array[array.length - 1];
+                keyString = atob(keyString);
+            }
+            
             if (!keyString) return null;
             console.log("getKeyFromLocalStorage (String): ", keyString);
 
@@ -418,10 +447,17 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             let decryptionKey = null;
             let additionalData = "";
             if (msgSenderId == myID) {
-                decryptionKey = localStorage.getItem("ownEncryptionKey");
+                let ownEncryptionKeysArray = localStorage.getItem("ownEncryptionKey");
+                ownEncryptionKeysArray = JSON.parse(ownEncryptionKeysArray)
+                ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 1];
+                decryptionKey = atob(ownEncryptionKeyString);
                 additionalDataInfo = `CHAT_MSG_${myID}_to_${peer_id}`;
             } else {
-                decryptionKey = localStorage.getItem("peerEncryptionKey");
+                // decryptionKey = atob(localStorage.getItem("peerEncryptionKey"));
+                let peerEncryptionKeysArray = localStorage.getItem("peerEncryptionKey");
+                peerEncryptionKeysArray = JSON.parse(peerEncryptionKeysArray)
+                peerEncryptionKeyString = peerEncryptionKeysArray[peerEncryptionKeysArray.length - 1];
+                decryptionKey = atob(peerEncryptionKeyString);
                 additionalDataInfo = `CHAT_MSG_${msgSenderId}_to_${myID}`;
             }
 
@@ -703,7 +739,10 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                 }
             }
 
-            const macKeyJwkString = localStorage.getItem('peerMacKey');
+            // const macKeyJwkString = atob(localStorage.getItem('peerMacKey'));
+            let peerMacKeysArray = localStorage.getItem('peerMacKey');
+            peerMacKeysArray = JSON.parse(peerMacKeysArray)
+            const macKeyJwkString = atob(peerMacKeysArray[peerMacKeysArray.length - 1]);
             const macKeyJwk = JSON.parse(macKeyJwkString);
 
             const macKey = await window.crypto.subtle.importKey(
