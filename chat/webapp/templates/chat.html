@@ -343,7 +343,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                 keyString = array[array.length - 1];
                 keyString = atob(keyString);
             }
-            
+
             if (!keyString) return null;
             console.log("getKeyFromLocalStorage (String): ", keyString);
 
@@ -375,14 +375,13 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             if (keyObj.kty === "oct") {
                 const base64 = keyObj.k.replace(/-/g, '+').replace(/_/g, '/');
                 console.log("getKeyFromLocalStorage (base64): ", base64);
-                // Decode base64 to ArrayBuffer
                 const keyBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer;
 
                 console.log("getKeyFromLocalStorage (ArrayBuffer): ", keyBuffer);
 
                 return window.crypto.subtle.importKey(
                     "raw",
-                    keyBuffer, // Use the ArrayBuffer here
+                    keyBuffer,
                     { name: "HMAC", hash: { name: "SHA-256" } },
                     true,
                     ["sign", "verify"]
@@ -390,31 +389,20 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             }
         }
 
-        function generateCounterBasedIV() {
-            counter += 1;
-            const fixedPortion = window.crypto.getRandomValues(new Uint8Array(4));
+        function generateTimeBasedIV() {
+            let iv = window.crypto.getRandomValues(new Uint8Array(12));
+            let currentTimeStamp = Date.now();
 
-            if (counter >= Number.MAX_SAFE_INTEGER) {
-                throw new Error("Counter has reached its maximum safe value. Reset needed with caution.");
+            for (let i = 0; i < 4; i++) {
+                iv[i] = (currentTimeStamp >> (8 * i)) & 0xFF;
             }
-
-            let counterBytes = new Uint8Array([
-                (counter >> 24) & 0xFF,
-                (counter >> 16) & 0xFF,
-                (counter >> 8) & 0xFF,
-                counter & 0xFF
-            ]);
-
-            let iv = new Uint8Array(12);
-            iv.set(fixedPortion, 0);
-            iv.set(counterBytes, 4);
 
             return iv;
         }
 
         // Function to encrypt messages
         async function encryptMessage(plaintext, peer_id) {
-            const iv = generateCounterBasedIV();
+            const iv = generateTimeBasedIV();
             const encryptionKey = await getKeyFromLocalStorage("ownEncryptionKey");
             const macKey = await getKeyFromLocalStorage("ownMacKey");
 
@@ -552,7 +540,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                 true,
                 []
             );
-            
+
             await deriveHKDFKeys(peerPublicKey, peer_id);
 
             // Retrieve the last IV used from localStorage
