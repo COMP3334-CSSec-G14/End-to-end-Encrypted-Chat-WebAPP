@@ -556,8 +556,8 @@ are permitted provided that the original author is acknowledged. See JavaScript 
 
             // Encrypt and sign the key change message with both old and new MAC keys
             const { encryptedContent, iv, hmacHashUint8Array } = await encryptMessage(keyChangeMessage, peer_id);
-            const oldMacKey = await getKeyFromLocalStorage('macKey'); // Assuming this retrieves the old MAC key
-            const newMacKey = await getKeyFromLocalStorage('macKey'); // Assuming new MAC key has been stored here
+            const oldMacKey = await getKeyFromLocalStorage('macKey');
+            const newMacKey = await getKeyFromLocalStorage('macKey');
 
             // Sign with old MAC key
             const oldHmacSignature = await window.crypto.subtle.sign(
@@ -579,23 +579,21 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         }
 
         async function sendKeyChangeMessage(encryptedContent, iv, oldMacSignature, newMacSignature) {
-            // Convert ArrayBuffers to Base64 strings for transmission
+            // Convert the key & IV & HMAC from ArrayBuffer to base64
             const encryptedMessageBase64 = arrayBufferToBase64(encryptedContent);
             const ivBase64 = arrayBufferToBase64(iv);
             const oldMacSignatureBase64 = arrayBufferToBase64(oldMacSignature);
             const newMacSignatureBase64 = arrayBufferToBase64(newMacSignature);
 
-            // Construct the payload
             const payload = {
                 encryptedMessage: encryptedMessageBase64,
                 iv: ivBase64,
                 oldMacSignature: oldMacSignatureBase64,
                 newMacSignature: newMacSignatureBase64,
                 command: "change",
-                peer_id: peer_id // Assuming peer_id is the global variable indicating the current chat peer
+                peer_id: peer_id
             };
 
-            // Send the payload to the server
             fetch('/send_message', {
                 method: 'POST',
                 headers: {
@@ -662,10 +660,9 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                 .then(response => response.json())
                 .then(data => {
                     data.messages.forEach(message => {
-                        // Check if message_text and iv are defined
                         if (typeof message.message_text === 'undefined' || typeof message.iv === 'undefined') {
                             console.error('Undefined message text or iv');
-                            return; // Skip this message
+                            return;
                         }
 
                         try {
