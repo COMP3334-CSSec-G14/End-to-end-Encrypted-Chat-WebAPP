@@ -118,6 +118,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             let ownSaltArray = localStorage.getItem('salt');
             ownSaltArray = JSON.parse(ownSaltArray)
             const ownSalt = ownSaltArray[ownSaltArray.length - 1];
+            console.log("ownSalt", ownSalt);
 
             const peerSaltUint8Array = base64ToUint8Array(peerSalt);
             const ownSaltUint8Array = base64ToUint8Array(ownSalt);
@@ -161,7 +162,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             const peerMacKeyInfo = `MAC_KEY_${peerid}_to_${myID}`;
             const peerMacKey = await deriveKeyForSigning(hkdfKey, privateKey, peerPublicKey, peerSaltUint8Array, peerMacKeyInfo, ["sign", "verify"]);
             console.log("peerMacKey", peerMacKey);
-
+            
             saveKeyToLocalStorage(ownEncryptionKey, "ownEncryptionKey");
             saveKeyToLocalStorage(peerEncryptionKey, "peerEncryptionKey");
             saveKeyToLocalStorage(ownMacKey, "ownMacKey");
@@ -261,6 +262,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         // Function to fetch the peer's salt from the server
         async function fetchPeerSalt(peerId) {
             let peerSaltsArray = [];
+            console.log("Peer ID:", peerId)
 
             const response = await fetch(`/receive_salt/${peerId}`);
             const data = await response.json();
@@ -304,7 +306,15 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                     []
                 );
                 console.log("peerPublicKeyString", peerPublicKeyString);
-                await deriveHKDFKeys(peerPublicKey, peer_id);
+                if (localStorage.getItem("peerEncryptionKey") &&
+                    localStorage.getItem("peerMacKey") &&
+                    localStorage.getItem("ownEncryptionKey") &&
+                    localStorage.getItem("ownMacKey")
+                ) {
+                    displayMessage({ message_text: 'Keys already exist' });
+                } else {
+                    await deriveHKDFKeys(peerPublicKey, peer_id);
+                }
             }
             fetchMessages();
         });
@@ -323,6 +333,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                     let array = [];
                     if (localStorage.getItem(keyName)) {
                         array = JSON.parse(localStorage.getItem(keyName));
+                        if (array[array.length - 1] === keyString) return;
                         array.push(keyString);
                         localStorage.setItem(keyName, JSON.stringify(array));
                     } else {
@@ -407,9 +418,47 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         }
 
         // Function to encrypt messages
-        async function encryptMessage(plaintext, peer_id) {
-            const iv = generateTimeBasedIV();
+        async function encryptMessage(plaintext, peer_id, iv) {
             const encryptionKey = await getKeyFromLocalStorage("ownEncryptionKey", 1);
+            if (plaintext === 'change') {
+                const oldMacKey = await getKeyFromLocalStorage("ownMacKey", 2); 
+                const oldHmacIVSignature = await window.crypto.subtle.sign(
+                    "HMAC",
+                    oldMacKey,
+                    iv
+                );
+
+                const newMacKey = await getKeyFromLocalStorage("ownMacKey", 1);
+                const newHmacIVSignature = await window.crypto.subtle.sign(
+                    "HMAC",
+                    newMacKey,
+                    iv
+                );
+
+                const oldHmacHashUint8Array = new Uint8Array(oldHmacIVSignature);
+                const newHmacHashUint8Array = new Uint8Array(newHmacIVSignature);
+                const newHmacHashBase64 = btoa(String.fromCharCode.apply(null, newHmacHashUint8Array));
+
+                const oldEncryptionKey = await getKeyFromLocalStorage("ownEncryptionKey", 2);
+                const encryptedContent = await window.crypto.subtle.encrypt(
+                    {
+                        name: "AES-GCM",
+                        iv: iv,
+                        additionalData: new TextEncoder().encode(`CHAT_MSG_${myID}_to_${peer_id}`),
+                        tagLength: 128
+                    },
+                    oldEncryptionKey,
+                    new TextEncoder().encode(
+                        JSON.stringify({
+                            command: "change",
+                            newHmac: newHmacHashBase64
+                        })
+                    )
+                );
+
+                return { encryptedContent, iv, oldHmacHashUint8Array };
+            }
+
             const macKey = await getKeyFromLocalStorage("ownMacKey", 1);
 
             console.log('mackey:', macKey)
@@ -443,7 +492,11 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             if (msgSenderId == myID) {
                 let ownEncryptionKeysArray = localStorage.getItem("ownEncryptionKey");
                 ownEncryptionKeysArray = JSON.parse(ownEncryptionKeysArray)
-                ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 1];
+                if (ciphertext.split('.')[0] === 'change') {
+                    ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 2];
+                } else {
+                    ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 1];
+                }
                 decryptionKey = atob(ownEncryptionKeyString);
                 additionalDataInfo = `CHAT_MSG_${myID}_to_${peer_id}`;
             } else {
@@ -456,31 +509,113 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             }
 
             console.log('Decryption key:', decryptionKey);
+            if (ciphertext.split('.')[0] === 'change') {
+                console.log('test1:', ciphertext);
+                ciphertext = base64ToUint8Array(ciphertext.split('.')[1]).buffer;
 
-            const decryptKey = await window.crypto.subtle.importKey(
-                "jwk",
-                JSON.parse(decryptionKey),
-                {
-                    name: "AES-GCM",
-                    iv: iv
-                },
-                false,
-                ["decrypt"]
+                const decryptKey = await window.crypto.subtle.importKey(
+                    "jwk",
+                    JSON.parse(decryptionKey),
+                    {
+                        name: "AES-GCM",
+                        iv: iv
+                    },
+                    false,
+                    ["decrypt"]
+                );
+
+                const decryptedContent = await window.crypto.subtle.decrypt(
+                    {
+                        name: "AES-GCM",
+                        iv: iv,
+                        additionalData: new TextEncoder().encode(additionalDataInfo),
+                        tagLength: 128
+                    },
+                    decryptKey,
+                    ciphertext
+                );
+
+                console.log("test1");
+                const decryptedContentString = new TextDecoder().decode(decryptedContent);
+                const decryptedContentJson = JSON.parse(decryptedContentString);
+                console.log(decryptedContentJson);
+                console.log(decryptedContentJson.command);
+                if (decryptedContentJson.command === 'change') {
+                    if (myID == msgSenderId) {
+                        return 'Warning: Key Changed !!!';
+                    }
+                    const newHmacHashBase64 = decryptedContentJson.newHmac;
+
+                    const peerPublicKeyString = await fetchPeerPublicKey(msgSenderId);
+                    if (peerPublicKeyString) {
+                        const peerPublicKey = await window.crypto.subtle.importKey(
+                            "jwk",
+                            JSON.parse(peerPublicKeyString),
+                            {
+                                name: "ECDH",
+                                namedCurve: "P-384"
+                            },
+                            true,
+                            []
+                        );
+                        await deriveHKDFKeys(peerPublicKey, msgSenderId);
+                    }
+                    console.log(await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id));
+                    if (await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id)) {
+                        return 'Warning: Key Changed !!!';
+                    }
+                }
+            } else {
+                console.log('Test2:', ciphertext);
+                ciphertext = base64ToUint8Array(ciphertext).buffer;
+
+                const decryptKey = await window.crypto.subtle.importKey(
+                    "jwk",
+                    JSON.parse(decryptionKey),
+                    {
+                        name: "AES-GCM",
+                        iv: iv
+                    },
+                    false,
+                    ["decrypt"]
+                );
+
+                const decryptedContent = await window.crypto.subtle.decrypt(
+                    {
+                        name: "AES-GCM",
+                        iv: iv,
+                        additionalData: new TextEncoder().encode(additionalDataInfo),
+                        tagLength: 128
+                    },
+                    decryptKey,
+                    ciphertext
+                );
+
+                console.log("test2");
+                console.log('Decrypted content:', new TextDecoder().decode(decryptedContent));
+                return new TextDecoder().decode(decryptedContent);
+            }
+        }
+
+        async function changeKeyMessageVerify(newHmacHashBase64, decodedIv, peer_id) {
+            const newHmacHashUint8Array = base64ToUint8Array(newHmacHashBase64);
+
+            const macKey = await getKeyFromLocalStorage("peerMacKey", 1);
+
+            const hmac = await window.crypto.subtle.sign(
+                { name: "HMAC" },
+                macKey,
+                decodedIv
             );
 
-            const decryptedContent = await window.crypto.subtle.decrypt(
-                {
-                    name: "AES-GCM",
-                    iv: iv,
-                    additionalData: new TextEncoder().encode(additionalDataInfo),
-                    tagLength: 128
-                },
-                decryptKey,
-                ciphertext
-            );
+            receivedHmacBuffer = newHmacHashUint8Array.buffer;
 
-            console.log('Decrypted content:', new TextDecoder().decode(decryptedContent));
-            return new TextDecoder().decode(decryptedContent);
+            return window.crypto.subtle.verify(
+                "HMAC",
+                macKey,
+                receivedHmacBuffer,
+                decodedIv
+            );
         }
 
         // Send message function
@@ -489,7 +624,8 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             const message = document.getElementById('messageInput').value;
 
             // Encrypt the message before sending
-            const { encryptedContent, iv, hmacHashUint8Array } = await encryptMessage(message, peer_id);
+            const iv = generateTimeBasedIV();
+            const { encryptedContent, hmacHashUint8Array } = await encryptMessage(message, peer_id, iv);
 
             // Convert ArrayBuffer to base64
             const encryptedMessage = btoa(String.fromCharCode.apply(null, new Uint8Array(encryptedContent)));
@@ -556,49 +692,29 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                 console.error('No last IV found. Cannot send key change message.');
                 return;
             }
+            const ownlastIVUint8Array = base64ToUint8Array(ownlastBase64IV);
 
-            // Prepare the key change message
-            const command = "change";
-            const keyChangeMessage = JSON.stringify({ iv: ownlastBase64IV, command });
+            keyChangeMessage = "change";
 
             // Encrypt and sign the key change message with both old and new MAC keys
-            const { encryptedContent, iv, hmacHashUint8Array } = await encryptMessage(keyChangeMessage, peer_id);
-            const oldMacKey = await getKeyFromLocalStorage('macKey', 2);
-            const newMacKey = await getKeyFromLocalStorage('macKey', 1);
+            const { encryptedContent, iv, oldHmacHashUint8Array } = await encryptMessage(keyChangeMessage, peer_id, ownlastIVUint8Array);
 
-            // Sign with old MAC key
-            const oldHmacSignature = await window.crypto.subtle.sign(
-                "HMAC",
-                oldMacKey,
-                iv
-            );
+            await sendKeyChangeMessage(encryptedContent, iv, oldHmacHashUint8Array);
 
-            // Sign with new MAC key
-            const newHmacSignature = await window.crypto.subtle.sign(
-                "HMAC",
-                newMacKey,
-                iv
-            );
-
-            sendKeyChangeMessage(encryptedContent, iv, oldHmacSignature, newHmacSignature);
-
-            console.log('Keys refreshed and change message sent.');
+            // displayMessage({ message_text: `Key Changed & Change message sent successfully` });
         }
 
-        async function sendKeyChangeMessage(encryptedContent, iv, oldMacSignature, newMacSignature) {
+        async function sendKeyChangeMessage(encryptedContent, iv, oldMacSignature) {
             // Convert the key & IV & HMAC from ArrayBuffer to base64
             const encryptedMessageBase64 = arrayBufferToBase64(encryptedContent);
             const ivBase64 = arrayBufferToBase64(iv);
             const oldMacSignatureBase64 = arrayBufferToBase64(oldMacSignature);
-            const newMacSignatureBase64 = arrayBufferToBase64(newMacSignature);
 
             const payload = {
-                encryptedMessage: encryptedMessageBase64,
+                receiver_id: peer_id,
+                message_text: "change." + encryptedMessageBase64,
                 iv: ivBase64,
-                oldMacSignature: oldMacSignatureBase64,
-                newMacSignature: newMacSignatureBase64,
-                command: "change",
-                peer_id: peer_id
+                hmac: oldMacSignatureBase64,
             };
 
             fetch('/send_message', {
@@ -613,7 +729,6 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                         throw new Error('Failed to send key change message to the server');
                     }
                     console.log('Key change message sent successfully');
-                    displayMessage({ message_text: 'Key change message sent successfully' });
                 })
                 .catch(error => {
                     console.error('Error sending key change message:', error);
@@ -674,7 +789,6 @@ are permitted provided that the original author is acknowledged. See JavaScript 
 
                         try {
                             const decodedIv = base64ToUint8Array(message.iv);
-                            const decodedMessageText = base64ToUint8Array(message.message_text);
                             const decodedHMAC = base64ToUint8Array(message.hmac);
 
                             if (message.sender_id !== myID) {
@@ -687,7 +801,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                                         }
                                         localStorage.setItem('peerlastBase64IV', message.iv);
 
-                                        decryptMessage(message.sender_id, message.receiver_id, decodedMessageText.buffer, decodedIv)
+                                        decryptMessage(message.sender_id, message.receiver_id, message.message_text, decodedIv)
                                             .then(decryptedMessage => {
                                                 message.message_text = decryptedMessage;
                                                 displayMessage(message);
@@ -696,7 +810,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                                     })
                                     .catch(error => console.error('Error verifying HMAC:', error));
                             } else {
-                                decryptMessage(message.sender_id, message.receiver_id, decodedMessageText.buffer, decodedIv)
+                                decryptMessage(message.sender_id, message.receiver_id, message.message_text, decodedIv)
                                     .then(decryptedMessage => {
                                         message.message_text = decryptedMessage;
                                         displayMessage(message);
@@ -797,7 +911,10 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             const receiver = message.receiver_id == myID ? "me" : (userInfo[message.receiver_id] || `User ${message.receiver_id}`);
 
             if (message.message_text === 'Warning: Use local key, not generate new key' ||
-                message.message_text === 'Warning: No key save in local, generate new key, cannot display previous messages') {
+                message.message_text === 'Warning: No key save in local, generate new key, cannot display previous messages' ||
+                message.message_text === 'Keys already exist' ||
+                message.message_text === 'Warning: Key Changed !!!'
+            ) {
                 messageElement.textContent = message.message_text;
                 messagesContainer.appendChild(messageElement);
                 return;
