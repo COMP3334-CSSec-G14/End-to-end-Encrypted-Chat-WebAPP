@@ -72,6 +72,12 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         let counter = 0;
 
         async function setupCrypto() {
+            if (localStorage.getItem("privateKey")) {
+                displayMessage({ message_text: 'Warning: Use local key, not generate new key' });
+                return;
+            }
+
+            displayMessage({ message_text: 'Warning: No key save in local, generate new key, cannot display previous messages' });
             const { privateKey, publicKey } = await generateECDHKey();
 
             const salt = window.crypto.getRandomValues(new Uint8Array(16));
@@ -101,7 +107,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         }
 
         async function deriveHKDFKeys(peerPublicKey, peerid) {
-            const privateKey = await getKeyFromLocalStorage("privateKey");
+            const privateKey = await getKeyFromLocalStorage("privateKey", 1);
 
             if (!privateKey) {
                 console.error("Private key not found. Please generate key pair first.");
@@ -331,7 +337,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             }
         }
 
-        function getKeyFromLocalStorage(keyName) {
+        function getKeyFromLocalStorage(keyName, position) {
             let keyString = localStorage.getItem(keyName);
             if (keyName === "peerEncryptionKey" ||
                 keyName === "peerMacKey" ||
@@ -340,7 +346,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             ) {
                 let array = localStorage.getItem(keyName);
                 array = JSON.parse(array)
-                keyString = array[array.length - 1];
+                keyString = array[array.length - position];
                 keyString = atob(keyString);
             }
 
@@ -403,8 +409,8 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         // Function to encrypt messages
         async function encryptMessage(plaintext, peer_id) {
             const iv = generateTimeBasedIV();
-            const encryptionKey = await getKeyFromLocalStorage("ownEncryptionKey");
-            const macKey = await getKeyFromLocalStorage("ownMacKey");
+            const encryptionKey = await getKeyFromLocalStorage("ownEncryptionKey", 1);
+            const macKey = await getKeyFromLocalStorage("ownMacKey", 1);
 
             console.log('mackey:', macKey)
 
@@ -488,6 +494,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             // Convert ArrayBuffer to base64
             const encryptedMessage = btoa(String.fromCharCode.apply(null, new Uint8Array(encryptedContent)));
             const base64IV = btoa(String.fromCharCode.apply(null, iv));
+            localStorage.setItem('ownlastBase64IV', base64IV);
             const base64HMAC = btoa(String.fromCharCode.apply(null, hmacHashUint8Array));
 
             const payload = {
@@ -544,20 +551,20 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             await deriveHKDFKeys(peerPublicKey, peer_id);
 
             // Retrieve the last IV used from localStorage
-            const lastBase64IV = localStorage.getItem('lastBase64IV');
-            if (!lastBase64IV) {
+            const ownlastBase64IV = localStorage.getItem('ownlastBase64IV');
+            if (!ownlastBase64IV) {
                 console.error('No last IV found. Cannot send key change message.');
                 return;
             }
 
             // Prepare the key change message
             const command = "change";
-            const keyChangeMessage = JSON.stringify({ iv: lastBase64IV, command });
+            const keyChangeMessage = JSON.stringify({ iv: ownlastBase64IV, command });
 
             // Encrypt and sign the key change message with both old and new MAC keys
             const { encryptedContent, iv, hmacHashUint8Array } = await encryptMessage(keyChangeMessage, peer_id);
-            const oldMacKey = await getKeyFromLocalStorage('macKey');
-            const newMacKey = await getKeyFromLocalStorage('macKey');
+            const oldMacKey = await getKeyFromLocalStorage('macKey', 2);
+            const newMacKey = await getKeyFromLocalStorage('macKey', 1);
 
             // Sign with old MAC key
             const oldHmacSignature = await window.crypto.subtle.sign(
@@ -678,7 +685,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                                             console.error('IV verification failed');
                                             return;
                                         }
-                                        localStorage.setItem('lastBase64IV', message.iv);
+                                        localStorage.setItem('peerlastBase64IV', message.iv);
 
                                         decryptMessage(message.sender_id, message.receiver_id, decodedMessageText.buffer, decodedIv)
                                             .then(decryptedMessage => {
@@ -709,10 +716,10 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             const decodedIv = base64ToUint8Array(iv);
 
             const decodedIvForComparison = base64ToUint8Array(iv.substring(4));
-            // if lastBase64IV is not set, then this is the first message
-            if (localStorage.getItem('lastBase64IV')) {
+            // if peerlastBase64IV is not set, then this is the first message
+            if (localStorage.getItem('peerlastBase64IV')) {
                 // As a recipient, verify that IVi > IVi-1 to prevent replay attacks
-                const lastBase64IV = localStorage.getItem('lastBase64IV');
+                const lastBase64IV = localStorage.getItem('peerlastBase64IV');
                 const lastIVForComparison = base64ToUint8Array(lastBase64IV.substring(5));
                 const lastIV = base64ToUint8Array(lastBase64IV);
                 const ivValue = byteArrayToBigInt(decodedIvForComparison);
@@ -789,6 +796,12 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             const sender = message.sender_id == myID ? "me" : (userInfo[message.sender_id] || `User ${message.sender_id}`);
             const receiver = message.receiver_id == myID ? "me" : (userInfo[message.receiver_id] || `User ${message.receiver_id}`);
 
+            if (message.message_text === 'Warning: Use local key, not generate new key' ||
+                message.message_text === 'Warning: No key save in local, generate new key, cannot display previous messages') {
+                messageElement.textContent = message.message_text;
+                messagesContainer.appendChild(messageElement);
+                return;
+            }
             messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
             messagesContainer.appendChild(messageElement);
         }
