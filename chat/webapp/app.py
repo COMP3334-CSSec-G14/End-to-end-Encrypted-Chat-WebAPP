@@ -27,16 +27,20 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # ==============================================================================
 
+import os
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, abort, flash
 from flask_mysqldb import MySQL
 from flask_session import Session
 import yaml
-
 import pyotp
 import pyqrcode
 import io
 import base64
 import bcrypt
+from PIL import Image, ImageDraw, ImageFont
+import io
+import base64
+import datetime
 
 def generate_otp_key_n_qr(username):
     secretKey = pyotp.random_base32()
@@ -123,10 +127,59 @@ def fetch_messages():
     cur.close()
     return jsonify({'messages': messages})
 
+# Generate a captcha
+def generate_captcha():
+    captcha_text = os.urandom(3).hex().upper()
+    captcha_id = os.urandom(5).hex().upper()
+
+    # Generate captcha
+    img = Image.new('RGB', (160, 60), color='white')
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    draw.text((10, 10), captcha_text, fill='black', font=font)
+    
+    # Save the base64 encode image database to database
+    buffer = io.BytesIO()
+    img.save(buffer, format='PNG')
+    captcha_img_data = base64.b64encode(buffer.getvalue()).decode()
+
+    cur = mysql.connection.cursor()
+    cur.execute('INSERT INTO captchas (captcha_id, captcha_text) VALUES (%s, %s)', (captcha_id, captcha_text))
+    mysql.connection.commit()
+    cur.close()
+    
+    return captcha_id, captcha_img_data
+    
+# Validate a captcha
+def validate_captcha(captcha_id, user_input):
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT captcha_text, created_at FROM captchas WHERE captcha_id = %s", (captcha_id,))
+    captcha_record = cur.fetchone()
+    cur.close()
+
+    if captcha_record:
+        captcha_text, created_at = captcha_record
+        if datetime.datetime.now() - created_at > datetime.timedelta(minutes=5):
+            return False
+        if captcha_text == user_input:
+            cur = mysql.connection.cursor()
+            cur.execute("DELETE FROM captchas WHERE captcha_id = %s", (captcha_id,))
+            mysql.connection.commit()
+            cur.close()
+            return True
+    return False
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
     if request.method == 'POST':
+        captcha_id = request.form['captcha_id']
+        captcha_input = request.form['captcha']
+        if not validate_captcha(captcha_id, captcha_input):
+            error = 'Invalid captcha'
+            return render_template('login.html', error=error, captcha_id=None, captcha_img_data=None)
+        
         userDetails = request.form
         username = userDetails['username']
         password = userDetails['password']
@@ -140,32 +193,45 @@ def login():
             session['user_id'] = account[0]
             hashed = account[1]
 
-            if (bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8')) and verify_otp(account[2], otp)):
+            if bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8')) and verify_otp(account[2], otp):
                 return redirect(url_for('index'))
             else:
                 error = 'Invalid OTP or password'
-            return redirect(url_for('index'))
-        
+                # if the authentication fails, regenerate the captcha
+                captcha_id, captcha_img_data = generate_captcha()
+                return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         else:
             error = 'Invalid credentials'
-    return render_template('login.html', error=error)
+    else:
+        captcha_id, captcha_img_data = generate_captcha()
+    return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
+
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     error = None
     if request.method == 'POST':
+        captcha_id = request.form['captcha_id']
+        captcha_input = request.form['captcha']
+        if not validate_captcha(captcha_id, captcha_input):
+            error = 'Invalid captcha'
+            # if the captcha validation fails, regenerate the captcha
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
+        
         userDetails = request.form
         username = userDetails['username']
         password = userDetails['password']
         re_enter_password = userDetails['re-enter-password']
 
-        if (password != re_enter_password):
+        if password != re_enter_password:
             error = 'Passwords do not match'
-            return render_template('signup.html', error=error)
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
         cur = mysql.connection.cursor()
-        hashedPassword = passwordHashing(password)
-
+        hashedPassword = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        
         try:
             secretKey, qrCodeImg = generate_otp_key_n_qr(username)
             cur.execute("INSERT INTO users (username, password, mfa_secret) VALUES (%s, %s, %s)", (username, hashedPassword, secretKey,))
@@ -173,16 +239,15 @@ def signup():
             session['username'] = username
             session['qrCodeImg'] = qrCodeImg
             session['secretKey'] = secretKey
-
             return redirect(url_for('add_otp'))
-        
         except Exception as e:
-            return render_template('signup.html', error=e)
-        
+            error = str(e)
         finally:
             cur.close()
+    else:
+        captcha_id, captcha_img_data = generate_captcha()
+    return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
-    return render_template('signup.html', error=error)
 
 @app.route('/add_otp', methods=['GET', 'POST'])
 def add_otp():

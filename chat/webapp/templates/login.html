@@ -35,6 +35,12 @@
                 <label for="otp">OTP (Open your Authenticator App)</label>
                 <input type="numeric" class="form-control" id="otp" name="otp" required>
             </div>
+            <div class="form-group"> <!-- new -->
+                <label for="captcha">Captcha</label><br>
+                <img src="data:image/png;base64,{{ captcha_img_data }}" alt="Captcha Image"><br>
+                <input type="text" class="form-control" id="captcha" name="captcha" placeholder="Enter captcha" required>
+                <input type="hidden" name="captcha_id" value="{{ captcha_id }}">
+            </div>
             <div class="text-center">
                 <button type="submit" class="btn btn-primary">Login</button>
             </div>
