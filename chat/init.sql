@@ -44,6 +44,13 @@ CREATE TABLE messages (
     FOREIGN KEY (receiver_id) REFERENCES users(user_id)
 );
 
+-- Captcha table
+CREATE TABLE captchas (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  captcha_id VARCHAR(10) NOT NULL,
+  captcha_text VARCHAR(6) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Optionally, insert some initial data for testing
 -- INSERT INTO users (username, password) VALUES ('Alice', 'password123'); -- Use hashed passwords in production

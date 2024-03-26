@@ -35,6 +35,12 @@
                 <label for="re-enter-password">Re-enter Password</label>
                 <input type="password" class="form-control" id="re-enter-password" name="re-enter-password" required>
             </div>
+            <div class="form-group"> <!-- new -->
+                <label for="captcha">Captcha</label><br>
+                <img src="data:image/png;base64,{{ captcha_img_data }}" alt="Captcha Image"><br>
+                <input type="text" class="form-control" id="captcha" name="captcha" placeholder="Enter captcha" required>
+                <input type="hidden" name="captcha_id" value="{{ captcha_id }}">
+            </div>
             <div class="text-center">
                 <button type="submit" class="btn btn-primary">Sign up</button>
             </div>
