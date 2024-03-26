@@ -8,6 +8,18 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N" crossorigin="anonymous">
     <!-- External CSS -->
     <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
+    <!--aaaaaaa-->
+    <script>
+        function inputAnswer(){
+            var option = $('select option:selected').val();
+            if (option == "0") {
+                document.getElementById("answer").style.visibility = "hidden";
+            } else {
+                document.getElementById("answer").style.visibility = "visible";
+            }
+        }
+    </script>
+    <!--aaaaaaa-->
 </head>
 <body>
     <div class="login-container">
@@ -35,6 +47,21 @@
                 <label for="re-enter-password">Re-enter Password</label>
                 <input type="password" class="form-control" id="re-enter-password" name="re-enter-password" required>
             </div>
+            <!--aaaaaaa-->
+            <div class="form-group">
+                <label for="security-question">Security Question</label>
+                <select class="form-control" id="security-question" name="security-question" onchange="inputAnswer()">
+                    <option value="0">--Please select a security question--</option>
+                    <option value="1">{{randomQuestions[0]}}</option>
+                    <option value="2">{{randomQuestions[1]}}</option>
+                    <option value="3">{{randomQuestions[2]}}</option>
+                </select>
+            </div>
+            <div class="form-group" id="answer" style="visibility:hidden">
+                <label for="passphrase">Re-enter Password</label>
+                <input type="password" class="form-control" id="passphrase" name="passphrase" required>
+            </div>
+            <!--aaaaaaa-->
             <div class="text-center">
                 <button type="submit" class="btn btn-primary">Sign up</button>
             </div>

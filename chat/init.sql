@@ -10,6 +10,7 @@ CREATE TABLE users (
     user_id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL, -- In a real application, this should store hashed passwords, not plain text
+    passphrase VARCHAR(255) NOT NULL,
     mfa_secret VARCHAR(255), -- For multi-factor authentication
     mfa_enabled BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

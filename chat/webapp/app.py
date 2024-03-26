@@ -37,6 +37,7 @@ import pyqrcode
 import io
 import base64
 import bcrypt
+import os
 
 def generate_otp_key_n_qr(username):
     secretKey = pyotp.random_base32()
@@ -79,6 +80,18 @@ mysql = MySQL(app)
 
 # Initialize the Flask-Session
 Session(app)
+
+# ------------
+questions = ["What is your favourite sport?",
+             "What is your favourite food?",
+             "What is your favourite movie?",
+             "What is your favourite drink?",
+             "What is your favourite animal?",
+             "Which city do you live now?",
+             "Which city were you born in?",
+             "Which city would you most like to live in the future?",
+             "What is your best friend's name?",
+             "What was the name of your first pet?"]
 
 @app.route('/')
 def index():
@@ -151,6 +164,39 @@ def login():
     return render_template('login.html', error=error)
 
 @app.route('/signup', methods=['GET', 'POST'])
+# def signup():
+#     error = None
+#     if request.method == 'POST':
+#         userDetails = request.form
+#         username = userDetails['username']
+#         password = userDetails['password']
+#         re_enter_password = userDetails['re-enter-password']
+
+#         if (password != re_enter_password):
+#             error = 'Passwords do not match'
+#             return render_template('signup.html', error=error)
+
+#         cur = mysql.connection.cursor()
+#         hashedPassword = passwordHashing(password)
+
+#         try:
+#             secretKey, qrCodeImg = generate_otp_key_n_qr(username)
+#             cur.execute("INSERT INTO users (username, password, mfa_secret) VALUES (%s, %s, %s)", (username, hashedPassword, secretKey,))
+#             mysql.connection.commit()
+#             session['username'] = username
+#             session['qrCodeImg'] = qrCodeImg
+#             session['secretKey'] = secretKey
+
+#             return redirect(url_for('add_otp'))
+        
+#         except Exception as e:
+#             return render_template('signup.html', error=e)
+        
+#         finally:
+#             cur.close()
+
+#     return render_template('signup.html', error=error)
+
 def signup():
     error = None
     if request.method == 'POST':
@@ -158,6 +204,22 @@ def signup():
         username = userDetails['username']
         password = userDetails['password']
         re_enter_password = userDetails['re-enter-password']
+        #----------------------
+        passphrase = userDetails['passphrase']
+        randomNum1 = int.from_bytes(os.urandom(8), byteorder="big", signed=False)%10
+        while True:
+            randomNum2 = int.from_bytes(os.urandom(8), byteorder="big", signed=False)%10
+            if randomNum1 != randomNum2:
+                break
+        while True:
+            randomNum3 = int.from_bytes(os.urandom(8), byteorder="big", signed=False)%10
+            if randomNum3 != randomNum2 and randomNum3 != randomNum1:
+                break
+        randomQuestions = []
+        randomQuestions.append(questions[randomNum1])
+        randomQuestions.append(questions[randomNum2])
+        randomQuestions.append(questions[randomNum3])
+        #----------------------
 
         if (password != re_enter_password):
             error = 'Passwords do not match'
@@ -165,10 +227,11 @@ def signup():
 
         cur = mysql.connection.cursor()
         hashedPassword = passwordHashing(password)
+        hashedPassphrase = passwordHashing(passphrase)
 
         try:
             secretKey, qrCodeImg = generate_otp_key_n_qr(username)
-            cur.execute("INSERT INTO users (username, password, mfa_secret) VALUES (%s, %s, %s)", (username, hashedPassword, secretKey,))
+            cur.execute("INSERT INTO users (username, password, passphrase, mfa_secret) VALUES (%s, %s, %s, %s)", (username, hashedPassword, hashedPassphrase, secretKey,))
             mysql.connection.commit()
             session['username'] = username
             session['qrCodeImg'] = qrCodeImg
@@ -182,7 +245,7 @@ def signup():
         finally:
             cur.close()
 
-    return render_template('signup.html', error=error)
+    return render_template('signup.html', randomQuestions=randomQuestions, error=error)
 
 @app.route('/add_otp', methods=['GET', 'POST'])
 def add_otp():
