@@ -24,7 +24,7 @@ CREATE TABLE public_keys_exchange (
 );
 
 CREATE TABLE salt_exchange (
-    public_key_id INT AUTO_INCREMENT PRIMARY KEY,
+    salt_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     salt TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
