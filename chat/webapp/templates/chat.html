@@ -487,89 +487,34 @@ are permitted provided that the original author is acknowledged. See JavaScript 
 
         // Function to decrypt messages
         async function decryptMessage(msgSenderId, peer_id, ciphertext, iv) {
+            console.log(myID, msgSenderId, peer_id);
             let decryptionKey = null;
-            let additionalData = "";
-            let ownEncryptionKeysArray = localStorage.getItem("ownEncryptionKey");
+            let additionalDataInfo = "";
+            let ownEncryptionKeysArray = JSON.parse(localStorage.getItem("ownEncryptionKey"));
+            let peerEncryptionKeysArray = JSON.parse(localStorage.getItem("peerEncryptionKey"));
 
-            for (let i = 0; i < ownEncryptionKeysArray.length; i++) {
-                if (msgSenderId == myID) {
-                    ownEncryptionKeysArray = JSON.parse(ownEncryptionKeysArray)
-                    if (ciphertext.split('.')[0] === 'change') {
-                        ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 2];
-                    } else {
-                        ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 1];
+            if (msgSenderId == myID) {
+                for (let i = 0; i < ownEncryptionKeysArray.length; i++) {
+                    let ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 1 - i];
+                    try {
+                        if (ciphertext.split('.')[0] === 'change') {
+                            ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 2];
+                        } else {
+                            ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 1];
+                        }
+                    } catch(error) {
+                        ciphertext = btoa(String.fromCharCode.apply(null, new Uint8Array(ciphertext)));
+                        ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 1 - i];
+                        console.log("ownEncryptionKeyString - for error: ", ownEncryptionKeyString);
                     }
+                    
                     decryptionKey = atob(ownEncryptionKeyString);
                     additionalDataInfo = `CHAT_MSG_${myID}_to_${peer_id}`;
-                } else {
-                    let peerEncryptionKeysArray = localStorage.getItem("peerEncryptionKey");
-                    peerEncryptionKeysArray = JSON.parse(peerEncryptionKeysArray)
-                    peerEncryptionKeyString = peerEncryptionKeysArray[peerEncryptionKeysArray.length - i - 1];
-                    decryptionKey = atob(peerEncryptionKeyString);
-                    additionalDataInfo = `CHAT_MSG_${msgSenderId}_to_${myID}`;
-                }
-
-                console.log('Decryption key:', decryptionKey);
-                if (ciphertext.split('.')[0] === 'change') {
-                    console.log('test1:', ciphertext);
-                    ciphertext = base64ToUint8Array(ciphertext.split('.')[1]).buffer;
-
-                    const decryptKey = await window.crypto.subtle.importKey(
-                        "jwk",
-                        JSON.parse(decryptionKey),
-                        {
-                            name: "AES-GCM",
-                            iv: iv
-                        },
-                        false,
-                        ["decrypt"]
-                    );
-
-                    const decryptedContent = await window.crypto.subtle.decrypt(
-                        {
-                            name: "AES-GCM",
-                            iv: iv,
-                            additionalData: new TextEncoder().encode(additionalDataInfo),
-                            tagLength: 128
-                        },
-                        decryptKey,
-                        ciphertext
-                    );
-
-                    console.log("test1");
-                    const decryptedContentString = new TextDecoder().decode(decryptedContent);
-                    const decryptedContentJson = JSON.parse(decryptedContentString);
-                    console.log(decryptedContentJson);
-                    console.log(decryptedContentJson.command);
-                    if (decryptedContentJson.command === 'change') {
-                        if (myID == msgSenderId) {
-                            return 'Warning: Key Changed !!!';
-                        }
-                        const newHmacHashBase64 = decryptedContentJson.newHmac;
-
-                        const peerPublicKeyString = await fetchPeerPublicKey(msgSenderId);
-                        if (peerPublicKeyString) {
-                            const peerPublicKey = await window.crypto.subtle.importKey(
-                                "jwk",
-                                JSON.parse(peerPublicKeyString),
-                                {
-                                    name: "ECDH",
-                                    namedCurve: "P-384"
-                                },
-                                true,
-                                []
-                            );
-                            await deriveHKDFKeys(peerPublicKey, msgSenderId);
-                        }
-                        console.log(await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id));
-                        if (await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id)) {
-                            return 'Warning: Key Changed !!!';
-                        }
-                    }
-                } else {
-                    try {
-                        console.log('Test2:', ciphertext);
-                        ciphertext = base64ToUint8Array(ciphertext).buffer;
+                    
+                    console.log('Decryption key:', decryptionKey);
+                    if (ciphertext.split('.')[0] === 'change') {
+                        console.log('test1:', ciphertext);
+                        ciphertext = base64ToUint8Array(ciphertext.split('.')[1]).buffer;
 
                         const decryptKey = await window.crypto.subtle.importKey(
                             "jwk",
@@ -593,11 +538,192 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                             ciphertext
                         );
 
-                        console.log("test2");
-                        console.log('Decrypted content:', new TextDecoder().decode(decryptedContent));
-                        return new TextDecoder().decode(decryptedContent);
+                        console.log("test1");
+                        const decryptedContentString = new TextDecoder().decode(decryptedContent);
+                        const decryptedContentJson = JSON.parse(decryptedContentString);
+                        console.log(decryptedContentJson);
+                        console.log(decryptedContentJson.command);
+                        if (decryptedContentJson.command === 'change') {
+                            if (myID == msgSenderId) {
+                                return 'Warning: Key Changed !!!';
+                            }
+                            const newHmacHashBase64 = decryptedContentJson.newHmac;
+
+                            const peerPublicKeyString = await fetchPeerPublicKey(msgSenderId);
+                            if (peerPublicKeyString) {
+                                const peerPublicKey = await window.crypto.subtle.importKey(
+                                    "jwk",
+                                    JSON.parse(peerPublicKeyString),
+                                    {
+                                        name: "ECDH",
+                                        namedCurve: "P-384"
+                                    },
+                                    true,
+                                    []
+                                );
+                                await deriveHKDFKeys(peerPublicKey, msgSenderId);
+                            }
+                            console.log(await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id));
+                            if (await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id)) {
+                                return 'Warning: Key Changed !!!';
+                            }
+                        }
+                    } else {
+                        try {
+                            console.log('Own Msg Test2:', ciphertext);
+                            ciphertext = base64ToUint8Array(ciphertext).buffer;
+
+                            const decryptKey = await window.crypto.subtle.importKey(
+                                "jwk",
+                                JSON.parse(decryptionKey),
+                                {
+                                    name: "AES-GCM",
+                                    iv: iv
+                                },
+                                false,
+                                ["decrypt"]
+                            );
+                            
+                            const decryptedContent = await window.crypto.subtle.decrypt(
+                                {
+                                    name: "AES-GCM",
+                                    iv: iv,
+                                    additionalData: new TextEncoder().encode(additionalDataInfo),
+                                    tagLength: 128
+                                },
+                                decryptKey,
+                                ciphertext
+                            );
+
+                            console.log('Own Decrypted content:', new TextDecoder().decode(decryptedContent));
+                            return new TextDecoder().decode(decryptedContent);
+                        } catch (error) {
+                            console.log(error);
+                            continue;
+                        }
+                    }
+                }
+            } else {
+                let changeKeyMsgFlag = false;
+                for (let i = 0; i < peerEncryptionKeysArray.length; i++) {
+                    try {
+                        peerEncryptionKeyString = peerEncryptionKeysArray[peerEncryptionKeysArray.length - i - 1];
+                        console.log(peerEncryptionKeyString);
+                    } catch(err) {
+                        console.log(err);
+                        console.log("Peer ciphertext !", ciphertext);
+                        ciphertext = btoa(String.fromCharCode.apply(null, new Uint8Array(ciphertext)));
+                        console.log("ciphertext - for error: ", ciphertext);
+                        peerEncryptionKeyString = peerEncryptionKeysArray[peerEncryptionKeysArray.length - 1 - i];
+                        console.log("peerEncryptionKeyString - for error: ", peerEncryptionKeysArray);
+                    }
+
+                    decryptionKey = atob(peerEncryptionKeyString);
+                    additionalDataInfo = `CHAT_MSG_${msgSenderId}_to_${myID}`;
+                    
+                    console.log('Decryption key:', decryptionKey);
+                    
+                    try {
+                        if (ciphertext.split('.')[0] === 'change') {
+                            changeKeyMsgFlag = true;
+                        }
                     } catch (error) {
-                        continue;
+                        changeKeyMsgFlag = false;
+                    }
+                    
+                    if (changeKeyMsgFlag) {
+                        console.log('test1:', ciphertext);
+                        ciphertext = base64ToUint8Array(ciphertext.split('.')[1]).buffer;
+
+                        const decryptKey = await window.crypto.subtle.importKey(
+                            "jwk",
+                            JSON.parse(decryptionKey),
+                            {
+                                name: "AES-GCM",
+                                iv: iv
+                            },
+                            false,
+                            ["decrypt"]
+                        );
+
+                        const decryptedContent = await window.crypto.subtle.decrypt(
+                            {
+                                name: "AES-GCM",
+                                iv: iv,
+                                additionalData: new TextEncoder().encode(additionalDataInfo),
+                                tagLength: 128
+                            },
+                            decryptKey,
+                            ciphertext
+                        );
+
+                        console.log("test1");
+                        const decryptedContentString = new TextDecoder().decode(decryptedContent);
+                        const decryptedContentJson = JSON.parse(decryptedContentString);
+                        console.log(decryptedContentJson);
+                        console.log(decryptedContentJson.command);
+                        if (decryptedContentJson.command === 'change') {
+                            if (myID == msgSenderId) {
+                                return 'Warning: Key Changed !!!';
+                            }
+                            const newHmacHashBase64 = decryptedContentJson.newHmac;
+
+                            const peerPublicKeyString = await fetchPeerPublicKey(msgSenderId);
+                            if (peerPublicKeyString) {
+                                const peerPublicKey = await window.crypto.subtle.importKey(
+                                    "jwk",
+                                    JSON.parse(peerPublicKeyString),
+                                    {
+                                        name: "ECDH",
+                                        namedCurve: "P-384"
+                                    },
+                                    true,
+                                    []
+                                );
+                                await deriveHKDFKeys(peerPublicKey, msgSenderId);
+                            }
+                            console.log(await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id));
+                            if (await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id)) {
+                                return 'Warning: Key Changed !!!';
+                            }
+                        }
+                    } else if (!changeKeyMsgFlag) {
+                        try {
+                            if (typeof ciphertext === 'string') {
+                                console.log('Peer Msg Test1:', ciphertext);
+                                ciphertext = base64ToUint8Array(ciphertext).buffer;
+                            } else {
+                                console.log('Peer Msg Test2:', ciphertext);
+                            }
+
+                            const decryptKey = await window.crypto.subtle.importKey(
+                                "jwk",
+                                JSON.parse(decryptionKey),
+                                {
+                                    name: "AES-GCM",
+                                    iv: iv
+                                },
+                                false,
+                                ["decrypt"]
+                            );
+
+                            const decryptedContent = await window.crypto.subtle.decrypt(
+                                {
+                                    name: "AES-GCM",
+                                    iv: iv,
+                                    additionalData: new TextEncoder().encode(additionalDataInfo),
+                                    tagLength: 128
+                                },
+                                decryptKey,
+                                ciphertext
+                            );
+
+                            console.log('Peer Decrypted content:', new TextDecoder().decode(decryptedContent));
+                            return new TextDecoder().decode(decryptedContent);
+                        } catch (error) {
+                            console.log(error);
+                            continue;
+                        }
                     }
                 }
             }
@@ -807,6 +933,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                                         }
                                         localStorage.setItem('peerlastBase64IV', message.iv);
 
+                                        console.log("Before Decrypt msg:", message.message_text);
                                         decryptMessage(message.sender_id, message.receiver_id, message.message_text, decodedIv)
                                             .then(decryptedMessage => {
                                                 message.message_text = decryptedMessage;
