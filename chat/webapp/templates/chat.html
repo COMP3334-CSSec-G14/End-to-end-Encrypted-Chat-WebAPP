@@ -51,6 +51,10 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         let peer_id = -1;
         const myID = {{ sender_id }};
         let userInfo = {};
+        let encryptionKey;
+        let decryptionKey;
+        let saltCounter = 1;
+        let counter = 0;
 
         // Ctrl+Enter to send message
         document.addEventListener('DOMContentLoaded', function () {
@@ -66,14 +70,10 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             window.location.href = '/logout';
         }
 
-        // Global variables for storing cryptographic keys
-        let encryptionKey, decryptionKey;
-        let saltCounter = 1;
-        let counter = 0;
-
+        // Setup some notifications and warning and gen key pair & salt
         async function setupCrypto() {
             if (localStorage.getItem("privateKey")) {
-                displayMessage({ message_text: 'Warning: Use local key, not generate new key' });
+                displayMessage({ message_text: 'Notification: Use local key, not generate new key' });
                 return;
             }
 
@@ -88,7 +88,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
 
         window.onload = setupCrypto;
 
-        // Generate ECDH key pair and public key
+        // Generate ECDH key pair (Public Key & Private Key)
         async function generateECDHKey() {
             const keyPair = await window.crypto.subtle.generateKey(
                 {
@@ -123,6 +123,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             const peerSaltUint8Array = base64ToUint8Array(peerSalt);
             const ownSaltUint8Array = base64ToUint8Array(ownSalt);
 
+            // gen the share secret
             const sharedSecret = await window.crypto.subtle.deriveBits(
                 {
                     name: "ECDH",
@@ -163,12 +164,14 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             const peerMacKey = await deriveKeyForSigning(hkdfKey, privateKey, peerPublicKey, peerSaltUint8Array, peerMacKeyInfo, ["sign", "verify"]);
             console.log("peerMacKey", peerMacKey);
             
+            // save those keys to localstorage 
             saveKeyToLocalStorage(ownEncryptionKey, "ownEncryptionKey");
             saveKeyToLocalStorage(peerEncryptionKey, "peerEncryptionKey");
             saveKeyToLocalStorage(ownMacKey, "ownMacKey");
             saveKeyToLocalStorage(peerMacKey, "peerMacKey");
         }
 
+        // Function to derive encryption key for encrypt message
         async function deriveKeyWithHKDF(hkdfKey, privateKey, peerPublicKey, salt, info, keyUsage) {
             return await window.crypto.subtle.deriveKey(
                 {
@@ -187,6 +190,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             );
         }
 
+        // Function to derive mac key for sign IV
         async function deriveKeyForSigning(hkdfKey, privateKey, peerPublicKey, salt, info, keyUsage) {
             return await window.crypto.subtle.deriveKey(
                 {
@@ -319,6 +323,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             fetchMessages();
         });
 
+        // Save the key to localstorage, but encode and array it
         async function saveKeyToLocalStorage(key, keyName) {
             try {
                 const exportedKey = await window.crypto.subtle.exportKey("jwk", key);
@@ -348,6 +353,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             }
         }
 
+        // To get the key from localstorage and load the key to the window.crypto.subtle
         function getKeyFromLocalStorage(keyName, position) {
             let keyString = localStorage.getItem(keyName);
             if (keyName === "peerEncryptionKey" ||
@@ -721,6 +727,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             }
         }
 
+        // Verify the message for change key
         async function changeKeyMessageVerify(newHmacHashBase64, decodedIv, peer_id) {
             const newHmacHashUint8Array = base64ToUint8Array(newHmacHashBase64);
 
@@ -786,16 +793,15 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                 });
         }
 
-        // Refresh Keys function placeholder
+        // Refresh Keys function 
         async function refreshKeys() {
             if (peer_id === -1) return;
 
-            // Generate new salt
+            // Gen new salt & derive new mac key and encryption key
             const newSalt = window.crypto.getRandomValues(new Uint8Array(16));
             const newSaltString = btoa(String.fromCharCode.apply(null, newSalt));
             await sendSaltToServer(newSaltString);
 
-            // Re-derive all symmetric keys with new salt
             const peerPublicKeyString = await fetchPeerPublicKey(peer_id);
             const peerPublicKey = await window.crypto.subtle.importKey(
                 "jwk",
@@ -810,7 +816,6 @@ are permitted provided that the original author is acknowledged. See JavaScript 
 
             await deriveHKDFKeys(peerPublicKey, peer_id);
 
-            // Retrieve the last IV used from localStorage
             const ownlastBase64IV = localStorage.getItem('ownlastBase64IV');
             if (!ownlastBase64IV) {
                 console.error('No last IV found. Cannot send key change message.');
@@ -820,7 +825,6 @@ are permitted provided that the original author is acknowledged. See JavaScript 
 
             keyChangeMessage = "change";
 
-            // Encrypt and sign the key change message with both old and new MAC keys
             const { encryptedContent, iv, oldHmacHashUint8Array } = await encryptMessage(keyChangeMessage, peer_id, ownlastIVUint8Array);
 
             await sendKeyChangeMessage(encryptedContent, iv, oldHmacHashUint8Array);
@@ -1046,7 +1050,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
             const sender = message.sender_id == myID ? "me" : (userInfo[message.sender_id] || `User ${message.sender_id}`);
             const receiver = message.receiver_id == myID ? "me" : (userInfo[message.receiver_id] || `User ${message.receiver_id}`);
 
-            if (message.message_text === 'Warning: Use local key, not generate new key' ||
+            if (message.message_text === 'Notification: Use local key, not generate new key' ||
                 message.message_text === 'Warning: No key save in local, generate new key, cannot display previous messages' ||
                 message.message_text === 'Keys already exist' ||
                 message.message_text === 'Warning: Key Changed !!!'
