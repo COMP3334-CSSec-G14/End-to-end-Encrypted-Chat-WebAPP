@@ -176,8 +176,9 @@ def contains_sqli_attempt(input_string):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
+    captcha_id, captcha_img_data = generate_captcha()
     if request.method == 'POST':
-        captcha_id = request.form['captcha_id']
+        captcha_id_form = request.form['captcha_id']
         captcha_input = request.form['captcha']
         userDetails = request.form
         username = userDetails['username']
@@ -189,9 +190,10 @@ def login():
             captcha_id, captcha_img_data = generate_captcha()
             return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         
-        if not validate_captcha(captcha_id, captcha_input):
+        if not validate_captcha(captcha_id_form, captcha_input):
             error = 'Invalid captcha'
-            return render_template('login.html', error=error, captcha_id=None, captcha_img_data=None)
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
         cur = mysql.connection.cursor()
         cur.execute("SELECT user_id, password, mfa_secret FROM users WHERE username=%s AND mfa_enabled=TRUE", (username,))
@@ -205,28 +207,24 @@ def login():
                 return redirect(url_for('index'))
             else:
                 error = 'Invalid OTP or password'
-                # if the authentication fails, regenerate the captcha
-                captcha_id, captcha_img_data = generate_captcha()
-                return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         else:
             error = 'Invalid credentials'
-    else:
-        captcha_id, captcha_img_data = generate_captcha()
+
     return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     error = None
+    captcha_id, captcha_img_data = generate_captcha()
     if request.method == 'POST':
-        captcha_id = request.form['captcha_id']
+        captcha_id_form = request.form['captcha_id']
         captcha_input = request.form['captcha']
-        if not validate_captcha(captcha_id, captcha_input):
+        if not validate_captcha(captcha_id_form, captcha_input):
             error = 'Invalid captcha'
-            # if the captcha validation fails, regenerate the captcha
             captcha_id, captcha_img_data = generate_captcha()
             return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
-
+        
         userDetails = request.form
         username = userDetails['username']
         password = userDetails['password']
@@ -234,18 +232,12 @@ def signup():
 
         if any(contains_sqli_attempt(field) for field in [captcha_input, username, password, re_enter_password]):
             error = 'Invalid input detected'
-            captcha_id, captcha_img_data = generate_captcha()
-            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         
         if password != re_enter_password:
             error = 'Passwords do not match'
-            captcha_id, captcha_img_data = generate_captcha()
-            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         
         if len(password) < 8:
             error = 'Password is less than 8 letters or digital'
-            captcha_id, captcha_img_data = generate_captcha()
-            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
         cur = mysql.connection.cursor()
         hashedPassword = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
@@ -263,8 +255,7 @@ def signup():
             error = str(e)
         finally:
             cur.close()
-    else:
-        captcha_id, captcha_img_data = generate_captcha()
+
     return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
 
