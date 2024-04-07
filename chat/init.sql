@@ -13,7 +13,7 @@ CREATE TABLE users (
     mfa_secret VARCHAR(255), -- For multi-factor authentication
     mfa_enabled BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    iv VARCHAR(255) NOT NULL,
+    iv VARCHAR(255) NOT NULL
 );
 
 CREATE TABLE public_keys_exchange (
