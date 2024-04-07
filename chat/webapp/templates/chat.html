@@ -262,7 +262,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         // Function to fetch the peer's salt from the server
         async function fetchPeerSalt(peerId) {
             let peerSaltsArray = [];
-            console.log("Peer ID:", peerId)
+            //console.log("Peer ID:", peerId)
 
             const response = await fetch(`/receive_salt/${peerId}`);
             const data = await response.json();
@@ -394,7 +394,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                 console.log("getKeyFromLocalStorage (base64): ", base64);
                 const keyBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer;
 
-                console.log("getKeyFromLocalStorage (ArrayBuffer): ", keyBuffer);
+                //console.log("getKeyFromLocalStorage (ArrayBuffer): ", keyBuffer);
 
                 return window.crypto.subtle.importKey(
                     "raw",
@@ -487,7 +487,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
 
         // Function to decrypt messages
         async function decryptMessage(msgSenderId, peer_id, ciphertext, iv) {
-            console.log(myID, msgSenderId, peer_id);
+            //console.log(myID, msgSenderId, peer_id);
             let decryptionKey = null;
             let additionalDataInfo = "";
             let ownEncryptionKeysArray = JSON.parse(localStorage.getItem("ownEncryptionKey"));
@@ -505,7 +505,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                     } catch(error) {
                         ciphertext = btoa(String.fromCharCode.apply(null, new Uint8Array(ciphertext)));
                         ownEncryptionKeyString = ownEncryptionKeysArray[ownEncryptionKeysArray.length - 1 - i];
-                        console.log("ownEncryptionKeyString - for error: ", ownEncryptionKeyString);
+                        console.log("ownEncryptionKeyString: ", ownEncryptionKeyString);
                     }
                     
                     decryptionKey = atob(ownEncryptionKeyString);
@@ -513,7 +513,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                     
                     console.log('Decryption key:', decryptionKey);
                     if (ciphertext.split('.')[0] === 'change') {
-                        console.log('test1:', ciphertext);
+                        //console.log('test1:', ciphertext);
                         ciphertext = base64ToUint8Array(ciphertext.split('.')[1]).buffer;
 
                         const decryptKey = await window.crypto.subtle.importKey(
@@ -538,7 +538,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                             ciphertext
                         );
 
-                        console.log("test1");
+                        //console.log("test1");
                         const decryptedContentString = new TextDecoder().decode(decryptedContent);
                         const decryptedContentJson = JSON.parse(decryptedContentString);
                         console.log(decryptedContentJson);
@@ -563,14 +563,14 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                                 );
                                 await deriveHKDFKeys(peerPublicKey, msgSenderId);
                             }
-                            console.log(await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id));
+                            //console.log(await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id));
                             if (await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id)) {
                                 return 'Warning: Key Changed !!!';
                             }
                         }
                     } else {
                         try {
-                            console.log('Own Msg Test2:', ciphertext);
+                            //console.log('Own Msg Test2:', ciphertext);
                             ciphertext = base64ToUint8Array(ciphertext).buffer;
 
                             const decryptKey = await window.crypto.subtle.importKey(
@@ -595,10 +595,10 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                                 ciphertext
                             );
 
-                            console.log('Own Decrypted content:', new TextDecoder().decode(decryptedContent));
+                            //console.log('Own Decrypted content:', new TextDecoder().decode(decryptedContent));
                             return new TextDecoder().decode(decryptedContent);
                         } catch (error) {
-                            console.log(error);
+                            //console.log(error);
                             continue;
                         }
                     }
@@ -610,12 +610,12 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                         peerEncryptionKeyString = peerEncryptionKeysArray[peerEncryptionKeysArray.length - i - 1];
                         console.log(peerEncryptionKeyString);
                     } catch(err) {
-                        console.log(err);
-                        console.log("Peer ciphertext !", ciphertext);
+                        //console.log(err);
+                        //console.log("Peer ciphertext !", ciphertext);
                         ciphertext = btoa(String.fromCharCode.apply(null, new Uint8Array(ciphertext)));
-                        console.log("ciphertext - for error: ", ciphertext);
+                        //console.log("ciphertext - for error: ", ciphertext);
                         peerEncryptionKeyString = peerEncryptionKeysArray[peerEncryptionKeysArray.length - 1 - i];
-                        console.log("peerEncryptionKeyString - for error: ", peerEncryptionKeysArray);
+                        console.log("peerEncryptionKeyString: ", peerEncryptionKeysArray);
                     }
 
                     decryptionKey = atob(peerEncryptionKeyString);
@@ -632,7 +632,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                     }
                     
                     if (changeKeyMsgFlag) {
-                        console.log('test1:', ciphertext);
+                        //console.log('test1:', ciphertext);
                         ciphertext = base64ToUint8Array(ciphertext.split('.')[1]).buffer;
 
                         const decryptKey = await window.crypto.subtle.importKey(
@@ -657,11 +657,11 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                             ciphertext
                         );
 
-                        console.log("test1");
+                        //console.log("test1");
                         const decryptedContentString = new TextDecoder().decode(decryptedContent);
                         const decryptedContentJson = JSON.parse(decryptedContentString);
-                        console.log(decryptedContentJson);
-                        console.log(decryptedContentJson.command);
+                        //console.log(decryptedContentJson);
+                        //console.log(decryptedContentJson.command);
                         if (decryptedContentJson.command === 'change') {
                             if (myID == msgSenderId) {
                                 return 'Warning: Key Changed !!!';
@@ -682,7 +682,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                                 );
                                 await deriveHKDFKeys(peerPublicKey, msgSenderId);
                             }
-                            console.log(await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id));
+                            //console.log(await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id));
                             if (await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id)) {
                                 return 'Warning: Key Changed !!!';
                             }
@@ -690,10 +690,8 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                     } else if (!changeKeyMsgFlag) {
                         try {
                             if (typeof ciphertext === 'string') {
-                                console.log('Peer Msg Test1:', ciphertext);
+                                //console.log('Peer Msg Test1:', ciphertext);
                                 ciphertext = base64ToUint8Array(ciphertext).buffer;
-                            } else {
-                                console.log('Peer Msg Test2:', ciphertext);
                             }
 
                             const decryptKey = await window.crypto.subtle.importKey(
@@ -718,10 +716,10 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                                 ciphertext
                             );
 
-                            console.log('Peer Decrypted content:', new TextDecoder().decode(decryptedContent));
+                            //console.log('Peer Decrypted content:', new TextDecoder().decode(decryptedContent));
                             return new TextDecoder().decode(decryptedContent);
                         } catch (error) {
-                            console.log(error);
+                            //console.log(error);
                             continue;
                         }
                     }
@@ -933,7 +931,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                                         }
                                         localStorage.setItem('peerlastBase64IV', message.iv);
 
-                                        console.log("Before Decrypt msg:", message.message_text);
+                                        //console.log("Before Decrypt msg:", message.message_text);
                                         decryptMessage(message.sender_id, message.receiver_id, message.message_text, decodedIv)
                                             .then(decryptedMessage => {
                                                 message.message_text = decryptedMessage;
@@ -1016,7 +1014,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                     receivedHmacBuffer,
                     decodedIv
                 );
-                console.log('flag:', flag);
+                //console.log('flag:', flag);
                 if (flag) {
                     break;
                 }

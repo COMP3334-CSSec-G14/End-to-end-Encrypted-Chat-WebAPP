@@ -132,13 +132,10 @@ def generate_captcha():
     captcha_text = os.urandom(3).hex().upper()
     captcha_id = os.urandom(5).hex().upper()
 
-    # Generate captcha
     img = Image.new('RGB', (160, 60), color='white')
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default()
     draw.text((10, 10), captcha_text, fill='black', font=font)
-    
-    # Save the base64 encode image database to database
     buffer = io.BytesIO()
     img.save(buffer, format='PNG')
     captcha_img_data = base64.b64encode(buffer.getvalue()).decode()
@@ -173,12 +170,16 @@ def validate_captcha(captcha_id, user_input):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
+    captcha_id, captcha_img_data = generate_captcha()
+    
     if request.method == 'POST':
-        captcha_id = request.form['captcha_id']
+        captcha_id_form = request.form['captcha_id']
         captcha_input = request.form['captcha']
-        if not validate_captcha(captcha_id, captcha_input):
+        
+        if not validate_captcha(captcha_id_form, captcha_input):
             error = 'Invalid captcha'
-            return render_template('login.html', error=error, captcha_id=None, captcha_img_data=None)
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         
         userDetails = request.form
         username = userDetails['username']
@@ -188,34 +189,34 @@ def login():
         cur = mysql.connection.cursor()
         cur.execute("SELECT user_id, password, mfa_secret FROM users WHERE username=%s AND mfa_enabled=TRUE", (username,))
         account = cur.fetchone()
+        cur.close()  
         if account:
+            user_id, hashed, mfa_secret = account
             session['username'] = username
-            session['user_id'] = account[0]
-            hashed = account[1]
+            session['user_id'] = user_id
 
-            if bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8')) and verify_otp(account[2], otp):
+            if bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8')) and verify_otp(mfa_secret, otp):
                 return redirect(url_for('index'))
             else:
                 error = 'Invalid OTP or password'
-                # if the authentication fails, regenerate the captcha
-                captcha_id, captcha_img_data = generate_captcha()
-                return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
+        
         else:
             error = 'Invalid credentials'
-    else:
-        captcha_id, captcha_img_data = generate_captcha()
+
     return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     error = None
+    captcha_id, captcha_img_data = generate_captcha()
+    
     if request.method == 'POST':
-        captcha_id = request.form['captcha_id']
+        captcha_id_form = request.form['captcha_id']
         captcha_input = request.form['captcha']
-        if not validate_captcha(captcha_id, captcha_input):
+        
+        if not validate_captcha(captcha_id_form, captcha_input):
             error = 'Invalid captcha'
-            # if the captcha validation fails, regenerate the captcha
             captcha_id, captcha_img_data = generate_captcha()
             return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         
@@ -226,28 +227,24 @@ def signup():
 
         if password != re_enter_password:
             error = 'Passwords do not match'
-            captcha_id, captcha_img_data = generate_captcha()
-            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
+        else:
+            cur = mysql.connection.cursor()
+            hashedPassword = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
-        cur = mysql.connection.cursor()
-        hashedPassword = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        
-        try:
-            secretKey, qrCodeImg = generate_otp_key_n_qr(username)
-            cur.execute("INSERT INTO users (username, password, mfa_secret) VALUES (%s, %s, %s)", (username, hashedPassword, secretKey,))
-            mysql.connection.commit()
-            session['username'] = username
-            session['qrCodeImg'] = qrCodeImg
-            session['secretKey'] = secretKey
-            return redirect(url_for('add_otp'))
-        except Exception as e:
-            error = str(e)
-        finally:
-            cur.close()
-    else:
-        captcha_id, captcha_img_data = generate_captcha()
+            try:
+                secretKey, qrCodeImg = generate_otp_key_n_qr(username) #mfa secret
+                cur.execute("INSERT INTO users (username, password, mfa_secret) VALUES (%s, %s, %s)", (username, hashedPassword, secretKey))
+                mysql.connection.commit()
+                session['username'] = username
+                session['qrCodeImg'] = qrCodeImg
+                session['secretKey'] = secretKey
+                return redirect(url_for('add_otp'))
+            except Exception as e:
+                error = str(e)
+            finally:
+                cur.close()  
+
     return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
-
 
 @app.route('/add_otp', methods=['GET', 'POST'])
 def add_otp():
