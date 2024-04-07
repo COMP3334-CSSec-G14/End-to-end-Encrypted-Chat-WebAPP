@@ -28,6 +28,7 @@
 # ==============================================================================
 
 import os
+import config
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, abort, flash
 from flask_mysqldb import MySQL
 from flask_session import Session
@@ -41,6 +42,8 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import base64
 import datetime
+from Crypto.Cipher import AES
+from Crypto import Random
 
 def generate_otp_key_n_qr(username):
     secretKey = pyotp.random_base32()
@@ -66,7 +69,7 @@ def passwordHashing(password):
 app = Flask(__name__)
 
 # Configure secret key and Flask-Session
-app.config['SECRET_KEY'] = 'your_secret_key_here'
+app.config['SECRET_KEY'] = 'qwer1234'
 app.config['SESSION_TYPE'] = 'filesystem'  # Options: 'filesystem', 'redis', 'memcached', etc.
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True  # To sign session cookies for extra security
@@ -170,30 +173,71 @@ def validate_captcha(captcha_id, user_input):
     return False
 
 
+def contains_sqli_attempt(input_string):
+    SQLI_BLACKLIST = ["'", '"', ";", "--", "/*", "*/", "=", "%"]
+    return any(char in input_string for char in SQLI_BLACKLIST)
+
+def mysql_aes_encrypt(data, key, iv):
+    with mysql.connection.cursor() as cursor:
+        cursor.execute("SET block_encryption_mode = 'aes-256-cbc'")
+        query = "SELECT HEX(AES_ENCRYPT(%s, UNHEX(%s), UNHEX(%s))) AS encrypted"
+        cursor.execute(query, (data, key, iv))
+        result = cursor.fetchone()
+        return result['encrypted'] if result else None
+
+
+def mysql_aes_decrypt(encrypted_data, key, iv):
+    with mysql.connection.cursor() as cursor:
+        cursor.execute("SET block_encryption_mode = 'aes-256-cbc'")
+        query = "SELECT AES_DECRYPT(UNHEX(%s), UNHEX(%s), UNHEX(%s)) AS decrypted"
+        cursor.execute(query, (encrypted_data, key, iv))
+        result = cursor.fetchone()
+        decrypted_data = result['decrypted']
+        return decrypted_data.decode('utf-8') if decrypted_data else None
+    
+def mysql_random_bytes(length):
+    with mysql.connection.cursor() as cursor:
+        query = "SELECT HEX(RANDOM_BYTES(%s)) AS random_bytes"
+        cursor.execute(query, (length,))
+        result = cursor.fetchone()
+        return result['random_bytes'] if result else None
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
     if request.method == 'POST':
         captcha_id = request.form['captcha_id']
         captcha_input = request.form['captcha']
-        if not validate_captcha(captcha_id, captcha_input):
-            error = 'Invalid captcha'
-            return render_template('login.html', error=error, captcha_id=None, captcha_img_data=None)
-        
         userDetails = request.form
         username = userDetails['username']
         password = userDetails['password']
         otp = userDetails['otp']
 
+        if any(contains_sqli_attempt(field) for field in [captcha_input, username, password, otp]):
+            error = 'Invalid input detected'
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('login.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
+        
+        if not validate_captcha(captcha_id, captcha_input):
+            error = 'Invalid captcha'
+            return render_template('login.html', error=error, captcha_id=None, captcha_img_data=None)
+
         cur = mysql.connection.cursor()
-        cur.execute("SELECT user_id, password, mfa_secret FROM users WHERE username=%s AND mfa_enabled=TRUE", (username,))
+        cur.execute("SELECT user_id, password, mfa_secret, iv FROM users WHERE username=%s AND mfa_enabled=TRUE", (username,))
         account = cur.fetchone()
         if account:
             session['username'] = username
             session['user_id'] = account[0]
             hashed = account[1]
 
-            if bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8')) and verify_otp(account[2], otp):
+            iv = account[3]
+            mfa_secret_enc = account[2]
+            key = config.AES_SECRET_KEY
+
+            mfa_secret = mysql_aes_decrypt(mfa_secret_enc, key, iv)
+
+            if bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8')) and verify_otp(mfa_secret, otp):
                 return redirect(url_for('index'))
             else:
                 error = 'Invalid OTP or password'
@@ -213,19 +257,29 @@ def signup():
     if request.method == 'POST':
         captcha_id = request.form['captcha_id']
         captcha_input = request.form['captcha']
+        userDetails = request.form
+        username = userDetails['username']
+        password = userDetails['password']
+        re_enter_password = userDetails['re-enter-password']
+
+        if any(contains_sqli_attempt(field) for field in [captcha_input, username, password, re_enter_password]):
+            error = 'Invalid input detected'
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
+        
         if not validate_captcha(captcha_id, captcha_input):
             error = 'Invalid captcha'
             # if the captcha validation fails, regenerate the captcha
             captcha_id, captcha_img_data = generate_captcha()
             return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         
-        userDetails = request.form
-        username = userDetails['username']
-        password = userDetails['password']
-        re_enter_password = userDetails['re-enter-password']
-
         if password != re_enter_password:
             error = 'Passwords do not match'
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
+        
+        if len(password) < 8:
+            error = 'Password is less than 8 letters or digital'
             captcha_id, captcha_img_data = generate_captcha()
             return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
@@ -234,7 +288,12 @@ def signup():
         
         try:
             secretKey, qrCodeImg = generate_otp_key_n_qr(username)
-            cur.execute("INSERT INTO users (username, password, mfa_secret) VALUES (%s, %s, %s)", (username, hashedPassword, secretKey,))
+            
+            key = config.AES_SECRET_KEY
+            iv = mysql_random_bytes(16)
+            mfa_secret_enc = mysql_aes_encrypt(secretKey, key, iv)
+
+            cur.execute("INSERT INTO users (username, password, mfa_secret, iv) VALUES (%s, %s, %s, %s)", (username, hashedPassword, mfa_secret_enc, iv, ))
             mysql.connection.commit()
             session['username'] = username
             session['qrCodeImg'] = qrCodeImg

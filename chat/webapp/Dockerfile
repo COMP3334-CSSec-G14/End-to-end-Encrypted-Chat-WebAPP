@@ -21,3 +21,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Run Gunicorn to serve the Flask app
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+ENV AES_SECRET_KEY B374A26A71490437AA024E4FADD5B497FDFF1A8EA6FF12F6FB65AF2720B59CCF

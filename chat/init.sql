@@ -12,7 +12,8 @@ CREATE TABLE users (
     password VARCHAR(255) NOT NULL, -- In a real application, this should store hashed passwords, not plain text
     mfa_secret VARCHAR(255), -- For multi-factor authentication
     mfa_enabled BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    iv VARCHAR(255) NOT NULL,
 );
 
 CREATE TABLE public_keys_exchange (
