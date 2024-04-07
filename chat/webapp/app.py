@@ -232,12 +232,18 @@ def signup():
 
         if any(contains_sqli_attempt(field) for field in [captcha_input, username, password, re_enter_password]):
             error = 'Invalid input detected'
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         
         if password != re_enter_password:
             error = 'Passwords do not match'
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         
         if len(password) < 8:
             error = 'Password is less than 8 letters or digital'
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
         cur = mysql.connection.cursor()
         hashedPassword = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
