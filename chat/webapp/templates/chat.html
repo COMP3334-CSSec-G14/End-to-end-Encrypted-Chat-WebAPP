@@ -685,6 +685,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                             if (await changeKeyMessageVerify(newHmacHashBase64, iv, peer_id)) {
                                 return 'Warning: Key Changed !!!';
                             }
+                            return 'Warning: Key Changed !!!'; 
                         }
                     } else if (!changeKeyMsgFlag) {
                         try {
