@@ -718,7 +718,8 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                             );
 
                             console.log('Peer Decrypted content:', new TextDecoder().decode(decryptedContent));
-                            return new TextDecoder().decode(decryptedContent);
+                            if (new TextDecoder().decode(decryptedContent) !== undefined)
+                                return new TextDecoder().decode(decryptedContent);
                         } catch (error) {
                             continue;
                         }
