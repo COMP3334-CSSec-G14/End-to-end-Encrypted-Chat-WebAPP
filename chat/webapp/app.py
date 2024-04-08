@@ -71,6 +71,9 @@ app.config['SESSION_TYPE'] = 'filesystem'  # Options: 'filesystem', 'redis', 'me
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True  # To sign session cookies for extra security
 app.config['SESSION_FILE_DIR'] = './sessions'  # Needed if using filesystem type
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True 
+app.config['SESSION_COOKIE_SAMESITE'] = 'strict'
 
 # Load database configuration from db.yaml or configure directly here
 db_config = yaml.load(open('db.yaml'), Loader=yaml.FullLoader)
