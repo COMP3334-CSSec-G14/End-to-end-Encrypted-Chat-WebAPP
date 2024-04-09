@@ -789,6 +789,7 @@ are permitted provided that the original author is acknowledged. See JavaScript 
                 })
                 .then(data => {
                     document.getElementById('messageInput').value = ''; // Clear the input after sending
+                    fetchAndScheduleNextFetch();
                 })
                 .catch(error => {
                     console.error('Error sending message:', error); // Log any errors
@@ -1066,7 +1067,15 @@ are permitted provided that the original author is acknowledged. See JavaScript 
         }
 
         // Periodically fetch new messages every second
-        setInterval(fetchMessages, 1000);
+        // setInterval(fetchMessages, 1000);
+        function fetchAndScheduleNextFetch() {
+            fetchMessages().then(() => {
+            // Schedule the next fetch after the current one has completed
+            setTimeout(fetchAndScheduleNextFetch, 1000);
+            });
+        }
+
+        setInterval(fetchAndScheduleNextFetch, 1000);
 
         // Erase Chat function using fetch API
         function eraseChat() {
