@@ -199,7 +199,34 @@ def login():
 
 def signup():
     error = None
+    #----------------------
+    # passphrase = userDetails['passphrase']
+    randomNum1 = int.from_bytes(os.urandom(8), byteorder="big", signed=False)%10
+    while True:
+        randomNum2 = int.from_bytes(os.urandom(8), byteorder="big", signed=False)%10
+        if randomNum1 != randomNum2:
+            break
+    while True:
+        randomNum3 = int.from_bytes(os.urandom(8), byteorder="big", signed=False)%10
+        if randomNum3 != randomNum2 and randomNum3 != randomNum1:
+            break
+    randomQuestions = []
+    randomQuestions.append(questions[randomNum1])
+    randomQuestions.append(questions[randomNum2])
+    randomQuestions.append(questions[randomNum3])
+    #----------------------
     if request.method == 'POST':
+<<<<<<< Updated upstream
+=======
+        captcha_id = request.form['captcha_id']
+        captcha_input = request.form['captcha']
+        if not validate_captcha(captcha_id, captcha_input):
+            error = 'Invalid captcha'
+            # if the captcha validation fails, regenerate the captcha
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data, randomQuestions=randomQuestions)
+        
+>>>>>>> Stashed changes
         userDetails = request.form
         username = userDetails['username']
         password = userDetails['password']
@@ -223,7 +250,12 @@ def signup():
 
         if (password != re_enter_password):
             error = 'Passwords do not match'
+<<<<<<< Updated upstream
             return render_template('signup.html', error=error)
+=======
+            captcha_id, captcha_img_data = generate_captcha()
+            return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data, randomQuestions=randomQuestions)
+>>>>>>> Stashed changes
 
         cur = mysql.connection.cursor()
         hashedPassword = passwordHashing(password)
@@ -244,6 +276,12 @@ def signup():
         
         finally:
             cur.close()
+<<<<<<< Updated upstream
+=======
+    else:
+        captcha_id, captcha_img_data = generate_captcha()
+    return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data, randomQuestions=randomQuestions)
+>>>>>>> Stashed changes
 
     return render_template('signup.html', randomQuestions=randomQuestions, error=error)
 
