@@ -244,7 +244,7 @@ def signup():
             return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
         
         if len(password) < 8:
-            error = 'Password is less than 8 letters or digital'
+            error = 'Password is less than 8 letters or digits'
             captcha_id, captcha_img_data = generate_captcha()
             return render_template('signup.html', error=error, captcha_id=captcha_id, captcha_img_data=captcha_img_data)
 
