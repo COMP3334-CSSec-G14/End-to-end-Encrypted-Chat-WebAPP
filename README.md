@@ -13,8 +13,11 @@ An End-to-end Encrypted Chat Web Application
   - MySQL
 - Web Server
   - Nginx
+- Container
+  - Docker
+  
 
-## Key & Cert Generate
+## Server TLS Key & Cert Generate
 
 ```bash
 openssl ecparam -genkey -name secp384r1 -out server.key
